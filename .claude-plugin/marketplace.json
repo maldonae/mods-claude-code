@@ -1,6 +1,6 @@
 {
   "name": "maldonae-mods",
-  "description": "Mods Claude Code d'Eric Maldonado : bandes au-dessus du prompt pour les suggestions, la progression, la jauge d'usage, l'amélioration de prompt et le passage de relais.",
+  "description": "Mods Claude Code d'Eric Maldonado : bandes au-dessus du prompt pour les suggestions, la progression, la jauge d'usage, l'amélioration de prompt, le passage de relais et le contrôle qualité avant commit.",
   "owner": { "name": "Eric Maldonado", "url": "https://github.com/maldonae" },
   "plugins": [
     {
@@ -37,6 +37,13 @@
       "description": "Passe le relais avant que le contexte sature : fiche de reprise markdown + prompt prêt à coller dans une nouvelle session.",
       "category": "productivity",
       "tags": ["mod", "contexte", "reprise"]
+    },
+    {
+      "name": "qa-guardian",
+      "source": "./plugins/qa-guardian",
+      "description": "Contrôle qualité avant chaque git commit : tests, lint, TODO, secrets, fichiers suspects ; bloque si secret ou test en échec.",
+      "category": "security",
+      "tags": ["mod", "qualité", "secrets", "git"]
     }
   ]
 }

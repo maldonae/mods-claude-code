@@ -7,7 +7,7 @@
   "scripts": {
     "check:guard": "node scripts/check-guard.mjs",
     "test:node": "node --test plugins/cap/tests/suggest.node.mts plugins/fil/tests/progress.node.mts plugins/jauge/tests/format.node.mts",
-    "test:mods": "claude plugin test plugins/cap && claude plugin test plugins/fil && claude plugin test plugins/jauge && claude plugin test plugins/pen && claude plugin test plugins/relay",
+    "test:mods": "claude plugin test plugins/cap && claude plugin test plugins/fil && claude plugin test plugins/jauge && claude plugin test plugins/pen && claude plugin test plugins/relay && claude plugin test plugins/qa-guardian",
     "validate": "claude plugin validate .",
     "quality": "npm run check:guard && npm run test:node && npm run validate"
   },
