@@ -13,6 +13,7 @@ Famille commune : carré arrondi 512 × 512 (rayon 112), fond indigo nuit `#1E1B
 | `plugins/pen/pen-icon.svg` / `.png` | Icône de pen | Crayon et étincelles | Création originale, reprend le symbole de la première icône de pen |
 | `plugins/relay/relay-icon.svg` / `.png` | Icône de relay | Fiche et flèche de passage | Création originale |
 | `plugins/qa-guardian/qa-guardian-icon.svg` / `.png` | Icône de qa-guardian | Bouclier et coche | Création originale |
+| `plugins/refactor/refactor-icon.svg` / `.png` | Icône de refactor | Lignes de code réordonnées par une flèche | Création originale |
 
 Chaque plugin embarque aussi une copie de son PNG (par exemple `plugins/pen/icon.png`), désignée par le champ `icon` de son `plugin.json`. D'après la documentation de Claude Code, ce champ sert à la fiche du plugin dans l'annuaire d'Anthropic et n'est pas lu par Claude Code : l'icône n'apparaît pas dans l'interface `/plugin`.
 

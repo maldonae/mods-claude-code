@@ -1,6 +1,6 @@
 {
   "name": "maldonae-mods",
-  "description": "Mods Claude Code d'Eric Maldonado : bandes au-dessus du prompt pour les suggestions, la progression, la jauge d'usage, l'amélioration de prompt, le passage de relais et le contrôle qualité avant commit.",
+  "description": "Mods Claude Code d'Eric Maldonado : bandes au-dessus du prompt pour les suggestions, la progression, la jauge d'usage, l'amélioration de prompt, le passage de relais, le contrôle qualité avant commit et la refactorisation guidée.",
   "owner": { "name": "Eric Maldonado", "url": "https://github.com/maldonae" },
   "plugins": [
     {
@@ -44,6 +44,13 @@
       "description": "Contrôle qualité avant chaque git commit : tests, lint, TODO, secrets, fichiers suspects ; bloque si secret ou test en échec.",
       "category": "security",
       "tags": ["mod", "qualité", "secrets", "git"]
+    },
+    {
+      "name": "refactor",
+      "source": "./plugins/refactor",
+      "description": "Refactorisation guidée : plan validé avant toute modification, application étape par étape avec tests, nettoyages Knip confirmés un par un.",
+      "category": "development",
+      "tags": ["mod", "refactorisation", "knip", "tests"]
     }
   ]
 }
