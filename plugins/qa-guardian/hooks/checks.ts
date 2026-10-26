@@ -64,22 +64,36 @@ export function parseDiff(diff: string): AddedLine[] {
   const added: AddedLine[] = []
   let file = ''
   let line = 0
+  // Un `+++ ` n'est un en-tête qu'entre `diff --git` et le premier `@@` : ailleurs, c'est une ligne ajoutée.
+  let isHeader = false
   for (const raw of diff.split('\n')) {
-    if (raw.startsWith('+++ ')) {
-      file = raw.startsWith('+++ b/') ? raw.slice(6) : ''
+    if (raw.startsWith('diff --git ')) {
+      isHeader = true
+      file = ''
+      continue
+    }
+    if (isHeader && raw.startsWith('+++ ')) {
+      const path = raw.slice(4).replace(/^"(.*)"$/, '$1')
+      file = path.startsWith('b/') ? path.slice(2) : ''
       continue
     }
     const hunk = /^@@ -\S+ \+(\d+)/.exec(raw)
     if (hunk) {
+      isHeader = false
       line = Number(hunk[1])
       continue
     }
-    if (file && raw.startsWith('+')) {
+    if (!isHeader && file && raw.startsWith('+')) {
       added.push({ file, line, text: raw.slice(1) })
       line += 1
     }
   }
   return added
+}
+
+/** Toutes les lignes d'un fichier non suivi, comme si elles étaient ajoutées. */
+export function linesOf(file: string, text: string): AddedLine[] {
+  return text.split('\n').map((t, i) => ({ file, line: i + 1, text: t }))
 }
 
 /** Secrets et TODO dans les lignes ajoutées. La valeur trouvée n'est jamais recopiée. */
@@ -138,17 +152,86 @@ export function worst(findings: readonly Finding[]): Report['level'] {
 }
 
 // `git commit`, y compris `git -C dir commit` ou `git -c k=v commit`, pas `git log --grep commit`.
-const COMMIT = /\bgit(?:\s+(?:-[Cc]\s+\S+|--?[\w-]+(?:=\S+)?))*\s+commit\b(.*)$/
+const GIT_OPTS = String.raw`((?:\s+(?:-[Cc]\s+\S+|--?[\w-]+(?:=\S+)?))*)`
+const COMMIT = new RegExp(String.raw`\bgit${GIT_OPTS}\s+commit\b(.*)$`)
+// Commandes qui changent l'index avant le commit, dans la même ligne (`git add -A && git commit`).
+const STAGES = new RegExp(String.raw`\bgit${GIT_OPTS}\s+(add|rm|mv|stage)\b`)
+const CD = /^cd\s+("[^"]*"|'[^']*'|\S+)\s*$/
+const QUOTED = /"(?:[^"\\]|\\.)*"|'[^']*'/g
 
-export type CommitIntent = { scope: Scope } | null
+// Options de `git commit` dont la valeur est le jeton suivant (pas un chemin).
+const LONG_WITH_VALUE = new Set([
+  '--message', '--file', '--author', '--date', '--template', '--reuse-message', '--reedit-message',
+  '--fixup', '--squash', '--cleanup', '--trailer', '--pathspec-from-file',
+])
+const SHORT_WITH_VALUE = 'mFCct'
 
+export type CommitIntent = { scope: Scope; cwd?: string } | null
+
+const unquote = (s: string): string => s.replace(/^(["'])(.*)\1$/, '$2')
+const isAbsolute = (p: string): boolean => /^([A-Za-z]:)?[\\/]/.test(p)
+const joinPath = (base: string | undefined, p: string): string =>
+  base === undefined || isAbsolute(p) ? p : `${base}/${p}`
+
+type CommitArgs = { isAll: boolean; hasPaths: boolean }
+
+// Les messages entre guillemets sont vidés d'abord : `-m "use -a"` ne vaut pas `-a`.
+function commitArgs(rest: string): CommitArgs {
+  const tokens = rest.replace(QUOTED, '""').split(/\s+/).filter(Boolean)
+  let isAll = false
+  let hasPaths = false
+  let isValueNext = false
+  let isAfterDashes = false
+  for (const t of tokens) {
+    if (/^\d*[<>|]/.test(t)) break
+    if (isValueNext) {
+      isValueNext = false
+    } else if (isAfterDashes) {
+      hasPaths = true
+    } else if (t === '--') {
+      isAfterDashes = true
+    } else if (t.startsWith('--')) {
+      if (t === '--all') isAll = true
+      if (t === '--include' || t === '--only' || t.startsWith('--pathspec-from-file')) hasPaths = true
+      isValueNext = LONG_WITH_VALUE.has(t)
+    } else if (t.startsWith('-') && t.length > 1) {
+      for (const [i, ch] of [...t.slice(1)].entries()) {
+        if (ch === 'a') isAll = true
+        if (SHORT_WITH_VALUE.includes(ch)) {
+          isValueNext = i === t.length - 2
+          break
+        }
+      }
+    } else {
+      hasPaths = true
+    }
+  }
+  return { isAll, hasPaths }
+}
+
+/**
+ * Ce que `command` committerait : `staged` (l'index), `all` (`-a` ou des chemins nommés),
+ * `worktree` (un `git add`/`rm`/`mv` le précède dans la même ligne, l'index n'est pas encore rempli).
+ * `cwd` suit `cd dir &&` et `git -C dir`.
+ */
 export function commitIntent(command: string): CommitIntent {
-  for (const part of command.split(/&&|\|\||;|\n/)) {
-    const m = COMMIT.exec(part.trim())
+  let cwd: string | undefined
+  let hasStaged = false
+  for (const raw of command.split(/&&|\|\||;|\n/)) {
+    const part = raw.trim()
+    const cd = CD.exec(part)
+    if (cd) {
+      cwd = joinPath(cwd, unquote(cd[1] ?? ''))
+      continue
+    }
+    if (STAGES.test(part)) hasStaged = true
+    const m = COMMIT.exec(part)
     if (!m) continue
-    // `-a`, `--all`, ou un groupe court qui le contient (`-am`).
-    const isAll = /(^|\s)(--all|-[A-Za-z]*a[A-Za-z]*)(?=\s|$)/.test(m[1] ?? '')
-    return { scope: isAll ? 'all' : 'staged' }
+    const dir = /-C\s+(\S+)/.exec(m[1] ?? '')
+    if (dir) cwd = joinPath(cwd, unquote(dir[1] ?? ''))
+    const args = commitArgs(m[2] ?? '')
+    const scope: Scope = hasStaged ? 'worktree' : args.isAll || args.hasPaths ? 'all' : 'staged'
+    return cwd === undefined ? { scope } : { scope, cwd }
   }
   return null
 }
