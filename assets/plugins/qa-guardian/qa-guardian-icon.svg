@@ -1,0 +1,10 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="512" height="512" viewBox="0 0 512 512">
+  <title>qa-guardian</title>
+  <rect width="512" height="512" rx="112" fill="#1E1B4B"/>
+  <g fill="none" stroke="#FFFFFF" stroke-width="32" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M256 96 L392 144 V252 C392 336 334 392 256 424 C178 392 120 336 120 252 V144 Z"/>
+  </g>
+  <g fill="none" stroke="#FBBF24" stroke-width="32" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M192 262 L238 308 L322 218"/>
+  </g>
+</svg>

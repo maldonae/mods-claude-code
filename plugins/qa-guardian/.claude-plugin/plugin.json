@@ -1,0 +1,12 @@
+{
+  "name": "qa-guardian",
+  "version": "0.1.0",
+  "description": "Vérifie tests, lint, TODO, secrets et fichiers suspects avant chaque git commit ; bloque si secret ou test en échec",
+  "author": { "name": "Eric Maldonado", "url": "https://github.com/maldonae" },
+  "homepage": "https://github.com/maldonae/mods-claude-code/tree/main/plugins/qa-guardian",
+  "repository": "https://github.com/maldonae/mods-claude-code",
+  "license": "MIT",
+  "keywords": ["mod", "qualité", "secrets", "git"],
+  "icon": "./icon.png",
+  "types": "./types/index.d.ts"
+}

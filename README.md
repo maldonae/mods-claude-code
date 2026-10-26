@@ -4,7 +4,7 @@
 
 <h1 align="center">maldonae-mods</h1>
 
-<p align="center">Mods pour <a href="https://code.claude.com/docs">Claude Code</a> : de petites bandes au-dessus du champ de saisie pour suivre l'usage, voir la progression, enchaîner les actions, mieux écrire ses prompts et passer le relais avant que le contexte sature.</p>
+<p align="center">Mods pour <a href="https://code.claude.com/docs">Claude Code</a> : de petites bandes au-dessus du champ de saisie pour suivre l'usage, voir la progression, enchaîner les actions, mieux écrire ses prompts, passer le relais avant que le contexte sature et contrôler la qualité avant chaque commit.</p>
 
 Ce dépôt est une **marketplace de plugins Claude Code**. Ajoutez-la une fois, puis installez seulement les mods qui vous intéressent.
 
@@ -31,6 +31,7 @@ claude plugin marketplace add maldonae/mods-claude-code
 | <img src="assets/plugins/jauge/jauge-icon.png" alt="" width="48" height="48"> | [**jauge**](plugins/jauge) | Contexte utilisé, fenêtre 5 h, limite 7 jours, tokens du dernier tour. | `/plugin install jauge@maldonae-mods` |
 | <img src="assets/plugins/pen/pen-icon.png" alt="" width="48" height="48"> | [**pen**](plugins/pen) | Bouton « Améliorer le prompt » : réécrit le brouillon en prompt clair et structuré, sans l'envoyer. | `/plugin install pen@maldonae-mods` |
 | <img src="assets/plugins/relay/relay-icon.png" alt="" width="48" height="48"> | [**relay**](plugins/relay) | Fiche de reprise markdown et prompt prêt à coller dans une nouvelle session. | `/plugin install relay@maldonae-mods` |
+| <img src="assets/plugins/qa-guardian/qa-guardian-icon.png" alt="" width="48" height="48"> | [**qa-guardian**](plugins/qa-guardian) | Avant chaque `git commit` de Claude : tests, lint, TODO, secrets, fichiers suspects ; bande verte, orange ou rouge, commit bloqué si secret ou test en échec. `/qa --report` écrit `qa-report.md`. | `/plugin install qa-guardian@maldonae-mods` |
 
 Depuis un shell, remplacez `/plugin install` par `claude plugin install` (par exemple `claude plugin install pen@maldonae-mods`). Choisissez la portée **user** pour retrouver le mod dans toutes vos sessions.
 
@@ -51,6 +52,7 @@ Après l'installation, fermez la session Claude Code **et** VS Code, puis rouvre
 | jauge | aucun | aucun | aucun | non |
 | pen | 1 appel Sonnet par clic sur le bouton | aucun | aucun | état activé |
 | relay | 1 appel (copie de la conversation, sans outils) par relais confirmé | écrit `.claude/relay/relay-AAAA-MM-JJ-HHMM.md` dans le dossier courant, sans jamais écraser | aucun | seuil, état activé |
+| qa-guardian | aucun | lit `package.json` ; écrit `qa-report.md` uniquement sur `/qa --report` ; ne lit jamais `.env`, `*.key`, `*.pem` | `git` (lecture : diff, status), scripts `test` et `lint` du projet via pnpm, yarn ou npm, avant chaque `git commit` lancé par Claude et sur `/qa` | non |
 
 - Les appels au modèle consomment votre quota Claude Code ; aucune donnée n'est envoyée ailleurs.
 - Rien n'est jamais envoyé à votre place : cap et pen **remplissent** le champ, vous validez avec Entrée.
@@ -66,8 +68,9 @@ Chaque mod déclare un seul module, `hooks/hooks.json` → `hooks/register.tsx`,
 - jauge : `session.start`, `command.run`, `session.measure`, `tool.call` (relecture après l'appel, sans le modifier), `turn.complete`, `ui.render`
 - pen : `session.start`, `command.run`, `ui.render`
 - relay : `session.start`, `command.run`, `session.measure`, `ui.render`
+- qa-guardian : `session.start`, `command.run`, `tool.call` (Bash, sur `git commit` uniquement), `ui.render`
 
-Aucun mod ne bloque ni ne modifie un appel d'outil.
+Seul qa-guardian peut bloquer un appel d'outil : un `git commit` lancé par Claude, quand un secret ou un test en échec est détecté (désactivable avec `/qa off`). Aucun mod ne modifie un appel d'outil.
 
 ## Mettre à jour
 
