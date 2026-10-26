@@ -111,25 +111,21 @@ export function knipStatusOf(packageJson: string | null, hasBin: boolean): KnipS
   }
 }
 
-// Knip lancé comme commande (`knip`, `npx knip`, `pnpm exec knip`, `bash -c "npx knip …"`),
-// pas cité dans un texte : le corps d'un heredoc (message de commit…) est retiré avant.
-const KNIP = /(^|[;&|(\n"'`]\s*)(npx\s+(-y\s+|--yes\s+)?|pnpm\s+(exec\s+|dlx\s+)?|yarn\s+(dlx\s+)?|bunx\s+|bun\s+x\s+)?knip(@\S+)?(\s|$)/
-const KNIP_FIX = /\s--(fix|fix-type|allow-remove-files)\b/
+// Knip sous toutes ses formes : `knip`, `npx knip`, `npm run knip`, `npm exec knip`,
+// `./node_modules/.bin/knip`, `knip.cmd`, `knip@5`, entre guillemets ou non.
+const KNIP = /(^|[\s/"'`=])knip(\.cmd|@[\w.^~-]+)?(?=$|[\s"'`])/
+const KNIP_FIX = /(^|[\s"'`=])--(fix|fix-type|allow-remove-files)(?=$|[\s"'`=])/
 
-/** La commande sans le corps de ses heredocs. */
+/** La commande sans le corps de ses heredocs (message de commit…). */
 export function withoutHeredocs(command: string): string {
   return command.replace(/<<-?\s*(['"]?)(\w+)\1[^\n]*\n[\s\S]*?\n\s*\2(?=\n|$)/g, '<<heredoc')
 }
 
-/** Les morceaux de la commande qui lancent Knip, chacun jusqu'au séparateur suivant. */
+/** Les commandes simples (entre `;`, `&`, `|` et retours à la ligne) qui lancent Knip. */
 function knipRuns(command: string): string[] {
-  const code = withoutHeredocs(command)
-  const runs: string[] = []
-  const re = new RegExp(KNIP.source, 'g')
-  for (let m = re.exec(code); m !== null; m = re.exec(code)) {
-    runs.push(code.slice(m.index + (m[1] ?? '').length).split(/[;&|\n"'`]/)[0] ?? '')
-  }
-  return runs
+  return withoutHeredocs(command)
+    .split(/[;&|\n]/)
+    .filter(part => KNIP.test(part))
 }
 
 /** `knip --fix` (et `--allow-remove-files`) : jamais lancé par Claude, à tout moment. */
@@ -145,7 +141,7 @@ export function knipRunVerdict(command: string, status: KnipStatus): string | nu
   }
   const runs = knipRuns(command)
   if (runs.length === 0) return null
-  if (runs.some(run => /\bknip(@\S+)?\s+init\b/.test(run))) {
+  if (runs.some(run => /\bknip(@\S+)?["'`]?\s+["'`]?init\b/.test(run))) {
     return '`npx knip init` écrit une configuration : propose-le à l’utilisateur sans l’exécuter'
   }
   if (status !== 'detected') {
@@ -154,8 +150,15 @@ export function knipRunVerdict(command: string, status: KnipStatus): string | nu
   return null
 }
 
-// Ce qui rend une suppression risquée : à analyser avant toute proposition de suppression.
-const HIGH_RISK = /framework|config|test|spec|script|entry|point d.entrée|dynami|plugin|next\.config|vite|storybook/i
+// Ce qui rend une suppression risquée : un usage par un framework, une configuration, un test,
+// un script, un entry point ou un import dynamique. « non utilisé par les tests » n'en est pas un.
+const HIGH_RISK = /framework|config\w*|\btests?\b|\bspec\b|\bscripts?\b|entry\s*points?|points?\s+d['’]entrée|dynami\w*|plugin|route|middleware/gi
+const NEGATION = /\b(non|pas|aucun\w*|ni|jamais|not|never|no|nor|unused)\b[^.;,]{0,25}$/i
+
+/** Un usage à risque élevé est nommé dans `reason`, sans négation juste avant (« ni la config »). */
+export function isHighRiskReason(reason: string): boolean {
+  return [...reason.matchAll(HIGH_RISK)].some(m => !NEGATION.test(reason.slice(0, m.index)))
+}
 
 const KNIP_ORDER: Record<StepKind, number> = { refactor: 0, 'knip-export': 1, 'knip-dependency': 2, 'knip-file': 3 }
 
@@ -171,11 +174,22 @@ const DANGEROUS: readonly [RegExp, string][] = [
   [/\bRemove-Item\b|\bri\s/i, 'suppression de fichier'],
 ]
 
+// Une redirection vers un fichier, guillemets retirés d'abord (`grep "<Button>"` n'en est pas une) :
+// `>`, `>>`, `1>`, `2>`, `&>` ; mais pas `2>&1`, `> /dev/null`, `=>`, `->`, `>=`.
+const REDIRECT = /(^|[^=\-<>])(\d|&)?>{1,2}(?![=&>])\s*(?!\/dev\/null\b|nul\b|\$null\b)[^\s;&|)]/i
+const QUOTED = /"(?:[^"\\]|\\.)*"|'[^']*'/g
+
 // Écrivent sur le disque hors Edit/Write : les vérifications du mod ne les verraient pas.
 const WRITES: readonly [RegExp, string][] = [
   [/\b(sed|perl)\s+(-\w*\s+)*-i/, 'édition en place (sed/perl -i)'],
-  // `2>&1`, `> /dev/null`, `=>` et `->` ne sont pas des écritures.
-  [/(^|[^<>&\d=-])>{1,2}\s*(?!&|\/dev\/null|nul\b|\$null)[^\s&|;]/i, 'redirection vers un fichier'],
+  [/(^|\s)--(fix|write)(\s|=|$)/, 'outil qui réécrit des fichiers (--fix, --write)'],
+  // En position de commande seulement : `grep black` reste une lecture.
+  [
+    /(^|[;&|(]\s*|(npx|bunx|pnpm\s+(exec|dlx)|yarn(\s+dlx)?)\s+)(oxfmt|dprint\s+fmt|gofmt\s+-w|black|ruff\s+format|rustfmt)\b/,
+    'formateur qui réécrit des fichiers',
+  ],
+  [/\b(npm|pnpm|yarn|bun)\s+(run\s+)?(format|fmt|fix|lint:fix|format:fix)\b/, 'script qui réécrit des fichiers'],
+  [/writeFile|appendFile|createWriteStream|copyFile|unlinkSync|rmSync|\.write_text|\.write_bytes|open\([^)]*["'][wax]\+?["']/, 'script qui écrit ou supprime des fichiers'],
   [/(^|[;&|(]\s*|\s)(tee|mv|cp|touch|mkdir|truncate|install)\s/, 'écriture de fichier'],
   [/\bgit\b[^;&|\n]*\s(apply|am|checkout|switch|merge|rebase|cherry-pick|revert|mv)\b/, 'commande git qui modifie les fichiers'],
   [/\b(npm|pnpm|yarn|bun)\s+(install|i|add|remove|rm|uninstall|un|update|up)\b/, 'changement de dépendances'],
@@ -192,6 +206,9 @@ export function shellVerdict(command: string, knipStatus: KnipStatus = 'detected
   if (danger) return `${danger[1]} : jamais sans validation explicite de l'utilisateur`
   const write = WRITES.find(([re]) => re.test(command))
   if (write) return `${write[1]} : pendant un refactor, les fichiers se modifient avec Edit ou Write uniquement`
+  if (REDIRECT.test(withoutHeredocs(command).replace(QUOTED, '""'))) {
+    return 'redirection vers un fichier : pendant un refactor, les fichiers se modifient avec Edit ou Write uniquement'
+  }
   return null
 }
 
@@ -236,7 +253,13 @@ function riskOf(v: unknown): Risk {
   const s = str(v).toLowerCase()
   if (s === 'eleve' || s === 'high' || s === 'élevé') return 'élevé'
   if (s === 'medium' || s === 'moyen') return 'moyen'
+  if (s === 'low' || s === 'faible') return 'faible'
   return RISKS.includes(s as Risk) ? (s as Risk) : 'moyen'
+}
+
+/** Les résultats Knip qu'une référence d'étape désigne : `nom`, ou `fichier:nom` quand le nom est ambigu. */
+export function knipMatches(items: readonly KnipItem[], ref: string): KnipItem[] {
+  return items.filter(k => ref === k.name || ref === `${k.file}:${k.name}`)
 }
 
 /** Un résultat Knip ; un usage par framework, configuration, test, script, entry point ou import dynamique est toujours à risque élevé. */
@@ -245,7 +268,7 @@ export function knipItemOf(raw: Record<string, unknown>): KnipItem | null {
   if (name === '') return null
   const kind = KNIP_KINDS.find(k => k === str(raw.kind).toLowerCase()) ?? 'export'
   const reason = str(raw.reason)
-  const risk = HIGH_RISK.test(reason) ? 'élevé' : riskOf(raw.risk)
+  const risk = isHighRiskReason(reason) ? 'élevé' : riskOf(raw.risk)
   return { kind, name, file: str(raw.file), risk, reason }
 }
 
@@ -287,8 +310,8 @@ export function parsePlan(input: unknown): PlanInput | string {
       testState: 'non exécutés',
       isConfirmed: kind === 'refactor',
     }
-    // Un nettoyage prend le risque le plus haut de ses résultats Knip.
-    const itemRisks = refs.map(r => knip.find(k => k.name === r)?.risk).filter((r): r is Risk => r !== undefined)
+    // Un nettoyage prend le risque le plus haut de ses résultats Knip (homonymes compris).
+    const itemRisks = refs.flatMap(r => knipMatches(knip, r).map(k => k.risk))
     if (itemRisks.includes('élevé')) step.risk = 'élevé'
     else if (itemRisks.includes('moyen') && step.risk === 'faible') step.risk = 'moyen'
     if (kind === 'knip-file' && step.risk === 'élevé') {

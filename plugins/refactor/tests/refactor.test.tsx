@@ -1,7 +1,7 @@
 import { expect, mock, test } from 'claude-code/testing'
 import type { On } from 'claude-code'
 
-import { PLAN_ONLY_END, knipFixVerdict, knipItemOf, parseCommand, parsePlan, resolvePath, shellVerdict } from '../hooks/plan'
+import { PLAN_ONLY_END, isHighRiskReason, knipFixVerdict, knipItemOf, parseCommand, parsePlan, resolvePath, shellVerdict } from '../hooks/plan'
 
 const BAND = {
   plugin: 'refactor',
@@ -388,6 +388,75 @@ test('knip --fix : visé quand Knip est lancé, pas quand il est cité', () => {
   expect(knipFixVerdict(commit)).toBeNull()
   expect(knipFixVerdict('npx knip --reporter json')).toBeNull()
   expect(knipFixVerdict('grep -r "fix" knip.json')).toBeNull()
+})
+
+test('review : knip --fix sous toutes ses formes, écritures shell, lectures autorisées', () => {
+  for (const run of [
+    'npm run knip -- --fix --allow-remove-files',
+    'npm exec knip -- --fix',
+    './node_modules/.bin/knip --fix',
+    "npx knip '--fix'",
+    'npx knip "--allow-remove-files"',
+  ]) {
+    expect(knipFixVerdict(run)).toContain('--fix')
+  }
+  for (const write of [
+    'pnpm test 1>out.ts',
+    'pnpm test &>log.txt',
+    'pnpm lint --fix',
+    'npx prettier --write .',
+    'npx oxfmt src',
+    'npm run format',
+    `node -e "require('fs').writeFileSync('a.ts', 'x')"`,
+  ]) {
+    expect(shellVerdict(write)).not.toBeNull()
+  }
+  for (const readOnly of [
+    'grep -rn "<Button>" src',
+    'grep -n "Promise<void>" src/a.ts',
+    'grep "len >= 3" src/a.ts',
+    'grep -w black src',
+    'pnpm test 2>&1 | tail -5',
+  ]) {
+    expect(shellVerdict(readOnly)).toBeNull()
+  }
+})
+
+test('review : risque élevé sans faux positif, « low », homonymes Knip', () => {
+  expect(isHighRiskReason('aucun import, non référencé par les tests ni la config')).toBe(false)
+  expect(isHighRiskReason('utilisé par le framework Next comme route')).toBe(true)
+  expect(isHighRiskReason('chargé via import dynamique')).toBe(true)
+  expect(knipItemOf({ kind: 'export', name: 'x', risk: 'low', reason: '' })?.risk).toBe('faible')
+
+  const twins = {
+    hasTests: true,
+    knip: [
+      { kind: 'export', name: 'helper', file: 'a.ts', risk: 'faible', reason: '' },
+      { kind: 'export', name: 'helper', file: 'b.ts', risk: 'élevé', reason: '' },
+    ],
+  }
+  const precise = parsePlan({ ...twins, steps: [{ title: 'E', kind: 'knip-export', files: ['a.ts'], risk: 'faible', tests: [], knip: ['a.ts:helper'] }] })
+  const vague = parsePlan({ ...twins, steps: [{ title: 'E', kind: 'knip-export', files: ['a.ts'], risk: 'faible', tests: [], knip: ['helper'] }] })
+  expect(typeof precise === 'string' ? precise : precise.steps[0]?.risk).toBe('faible')
+  expect(typeof vague === 'string' ? vague : vague.steps[0]?.risk).toBe('élevé')
+})
+
+test('review : valider le plan pendant le tour d’analyse ne met pas le refactor en pause', async ($, on) => {
+  const { reached, clock } = engine(on)
+  on('turn.start', (_$, e) => ({ turnId: e.turnId }))
+  on('turn.complete', () => ({ text: '' }))
+  await $.session.start({ cwd: '/repo', surface: 'terminal', isInteractive: true })
+  await $.command.run(run('src'))
+  await clock.settle()
+
+  await $.turn.start({ text: 'analyse', turnId: 't1' } as never)
+  await $.tool.call(PLAN as never)
+  await $.command.run(run('go'))
+  await clock.settle()
+  await $.turn.complete({ answer: 'plan', durationMs: 1, isAborted: false, turnId: 't1', reason: 'answer' } as never)
+
+  await $.tool.call(edit('/repo/src/a.ts'))
+  expect(reached).toEqual(['Edit'])
 })
 
 test('Knip : risque élevé forcé, jamais de suppression d’un fichier à risque élevé, ordre des nettoyages', () => {

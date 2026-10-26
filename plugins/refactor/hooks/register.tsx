@@ -14,6 +14,7 @@ import {
   isGuarded,
   knipFixVerdict,
   knipStatusOf,
+  knipMatches,
   needsConfirmation,
   parseCommand,
   parsePlan,
@@ -62,7 +63,7 @@ const PLAN_SCHEMA = {
           files: { type: 'array', items: { type: 'string' }, description: 'Fichiers concernés' },
           risk: { type: 'string', enum: ['faible', 'moyen', 'élevé'] },
           tests: { type: 'array', items: { type: 'string' }, description: 'Tests à lancer ou à créer après l’étape' },
-          knip: { type: 'array', items: { type: 'string' }, description: 'Noms des résultats Knip traités (exports, paquets, fichiers)' },
+          knip: { type: 'array', items: { type: 'string' }, description: 'Résultats Knip traités : leur nom, ou « fichier:nom » si deux résultats portent le même nom' },
         },
         required: ['title', 'files', 'risk', 'tests'],
       },
@@ -243,8 +244,9 @@ const TEST_COLOR: Record<TestState, 'success' | 'error' | undefined> = {
 }
 
 export const register: Register = on => {
-  // Tour du modèle lancé pendant un refactor : sa fin sans rapport arrête la phase en cours.
-  let watchedTurn: string | null = null
+  // Tour du modèle lancé pendant un refactor, avec la phase d'alors : sa fin sans rapport arrête
+  // cette phase-là seulement (un plan validé pendant le tour d'analyse n'est pas mis en pause).
+  let watched: { turnId: string; phase: Run['phase'] } | null = null
 
   on('session.start', async ($, e, next) => {
     await update($, cwd, () => e.cwd)
@@ -386,17 +388,19 @@ export const register: Register = on => {
   }).catch(($, e, next) => (next.called ? next(e) : deny('la vérification a échoué, commande refusée')))
 
   on('turn.start', async ($, e, next) => {
-    if (e.agentId === undefined && isGuarded(await read($, run))) watchedTurn = e.turnId
+    const current = await read($, run)
+    if (e.agentId === undefined && isGuarded(current)) watched = { turnId: e.turnId, phase: current.phase }
     return next(e)
   })
 
   on('turn.complete', async ($, e, next) => {
-    if (e.agentId === undefined && e.turnId === watchedTurn) {
-      watchedTurn = null
+    if (e.agentId === undefined && e.turnId === watched?.turnId) {
+      const startedIn = watched.phase
+      watched = null
       await update($, run, (r): Run | null => {
         if (r === null) return r
-        if (r.phase === 'analysing') return { ...r, phase: 'failed' }
-        if (r.phase === 'applying') return { ...r, phase: 'paused' }
+        if (r.phase === 'analysing' && startedIn === 'analysing') return { ...r, phase: 'failed' }
+        if (r.phase === 'applying' && startedIn === 'applying') return { ...r, phase: 'paused' }
         // Plan seul livré : la garde s'arrête avec le tour qui l'a présenté.
         if (r.phase === 'planned') return { ...r, phase: 'done' }
         return r
@@ -509,7 +513,8 @@ export const register: Register = on => {
     const { Box, Text } = $.ui.resolve(e)
     const r = await read($, run)
     if (r === null) return <Text dimColor>Aucun refactor. Lance /refactor &lt;chemin&gt;.</Text>
-    const unplaced = r.knip.filter(k => !r.steps.some(s => s.knip.includes(k.name)))
+    const itemsOf = (s: Step) => r.knip.filter(k => s.knip.some(ref => knipMatches([k], ref).length > 0))
+    const unplaced = r.knip.filter(k => !r.steps.some(s => itemsOf(s).includes(k)))
 
     return (
       <Box flexDirection="column">
@@ -535,10 +540,8 @@ export const register: Register = on => {
               {s.status !== 'todo' && <Text dimColor> · tests : {s.testState}</Text>}
             </Box>
             {s.files.length > 0 && <Text dimColor>{'   '}{s.files.join(', ')}</Text>}
-            {r.knip
-              .filter(k => s.knip.includes(k.name))
-              .map(k => (
-                <Text key={`knip-${i}-${k.name}`} color={RISK_COLOR[k.risk]}>
+            {itemsOf(s).map((k, j) => (
+                <Text key={`knip-${i}-${j}`} color={RISK_COLOR[k.risk]}>
                   {'   '}knip · {k.kind} {k.name}
                   {k.file && k.file !== k.name ? ` (${k.file})` : ''} — {k.risk}
                 </Text>
@@ -546,8 +549,8 @@ export const register: Register = on => {
           </Box>
         ))}
         {unplaced.length > 0 && <Text bold>À analyser (Knip, non traités)</Text>}
-        {unplaced.map(k => (
-          <Text key={`knip-rest-${k.name}`} color={RISK_COLOR[k.risk]}>
+        {unplaced.map((k, j) => (
+          <Text key={`knip-rest-${j}`} color={RISK_COLOR[k.risk]}>
             {'   '}{k.kind} {k.name} — {k.risk}{k.reason ? ` : ${k.reason}` : ''}
           </Text>
         ))}

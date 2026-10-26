@@ -4,7 +4,7 @@
 
 <h1 align="center">maldonae-mods</h1>
 
-<p align="center">Mods pour <a href="https://code.claude.com/docs">Claude Code</a> : de petites bandes au-dessus du champ de saisie pour suivre l'usage, voir la progression, enchaîner les actions, mieux écrire ses prompts, passer le relais avant que le contexte sature contrôler la qualité avant chaque commit et refactoriser pas à pas.</p>
+<p align="center">Mods pour <a href="https://code.claude.com/docs">Claude Code</a> : de petites bandes au-dessus du champ de saisie pour suivre l'usage, voir la progression, enchaîner les actions, mieux écrire ses prompts, passer le relais avant que le contexte sature, contrôler la qualité avant chaque commit et refactoriser pas à pas.</p>
 
 Ce dépôt est une **marketplace de plugins Claude Code**. Ajoutez-la une fois, puis installez seulement les mods qui vous intéressent.
 
