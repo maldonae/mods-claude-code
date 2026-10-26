@@ -1,0 +1,9 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="512" height="512" viewBox="0 0 512 512">
+  <title>jauge</title>
+  <rect width="512" height="512" rx="112" fill="#1E1B4B"/>
+  <path d="M128 336 A128 128 0 0 1 384 336" fill="none" stroke="#FFFFFF" stroke-width="32" stroke-linecap="round" stroke-linejoin="round"/>
+  <path d="M128 336 A128 128 0 0 1 166 245" fill="none" stroke="#FBBF24" stroke-width="32" stroke-linecap="round"/>
+  <line x1="256" y1="336" x2="330" y2="262" fill="none" stroke="#FFFFFF" stroke-width="32" stroke-linecap="round" stroke-linejoin="round"/>
+  <circle cx="256" cy="336" r="26" fill="#FBBF24"/>
+  <line x1="160" y1="400" x2="352" y2="400" fill="none" stroke="#FFFFFF" stroke-width="32" stroke-linecap="round" stroke-linejoin="round"/>
+</svg>

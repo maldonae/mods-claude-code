@@ -1,0 +1,5 @@
+{
+  "extends": "./.claude-plugin/types/tsconfig.json",
+  // Le test avec le vrai modèle (*.eval.mts, Node) est vérifié par tsconfig.node.json.
+  "exclude": ["tests/**/*.eval.mts"]
+}

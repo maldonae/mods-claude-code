@@ -1,0 +1,42 @@
+{
+  "name": "maldonae-mods",
+  "description": "Mods Claude Code d'Eric Maldonado : bandes au-dessus du prompt pour les suggestions, la progression, la jauge d'usage, l'amélioration de prompt et le passage de relais.",
+  "owner": { "name": "Eric Maldonado", "url": "https://github.com/maldonae" },
+  "plugins": [
+    {
+      "name": "cap",
+      "source": "./plugins/cap",
+      "description": "Après chaque tour, 3 actions suivantes cliquables au-dessus du prompt (un clic remplit le champ, sans l'envoyer).",
+      "category": "productivity",
+      "tags": ["mod", "suggestions", "prompt"]
+    },
+    {
+      "name": "fil",
+      "source": "./plugins/fil",
+      "description": "Barres de progression au-dessus du prompt pour les tâches longues et les sous-agents.",
+      "category": "productivity",
+      "tags": ["mod", "progression", "sous-agents"]
+    },
+    {
+      "name": "jauge",
+      "source": "./plugins/jauge",
+      "description": "Jauge d'usage au-dessus du prompt : contexte, fenêtre 5 h, dernier tour, limite 7 jours.",
+      "category": "monitoring",
+      "tags": ["mod", "contexte", "quota"]
+    },
+    {
+      "name": "pen",
+      "source": "./plugins/pen",
+      "description": "Bouton « Améliorer le prompt » : réécrit le brouillon en prompt clair et structuré, sans l'envoyer.",
+      "category": "productivity",
+      "tags": ["mod", "prompt", "réécriture"]
+    },
+    {
+      "name": "relay",
+      "source": "./plugins/relay",
+      "description": "Passe le relais avant que le contexte sature : fiche de reprise markdown + prompt prêt à coller dans une nouvelle session.",
+      "category": "productivity",
+      "tags": ["mod", "contexte", "reprise"]
+    }
+  ]
+}

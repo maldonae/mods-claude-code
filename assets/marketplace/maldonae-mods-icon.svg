@@ -1,0 +1,10 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="512" height="512" viewBox="0 0 512 512">
+  <title>maldonae-mods</title>
+  <rect width="512" height="512" rx="112" fill="#1E1B4B"/>
+  <g fill="none" stroke="#FFFFFF" stroke-width="32" stroke-linecap="round" stroke-linejoin="round">
+    <rect x="120" y="120" width="116" height="116" rx="28"/>
+    <rect x="276" y="276" width="116" height="116" rx="28"/>
+    <rect x="120" y="276" width="116" height="116" rx="28"/>
+  </g>
+  <rect x="276" y="120" width="116" height="116" rx="28" fill="#FBBF24" stroke="#FBBF24" stroke-width="32" stroke-linejoin="round"/>
+</svg>

@@ -1,0 +1,12 @@
+{
+  "name": "fil",
+  "version": "0.1.0",
+  "description": "Barres de progression au-dessus du prompt pour les tâches longues et les sous-agents (/fil pour activer ou désactiver).",
+  "author": { "name": "Eric Maldonado", "url": "https://github.com/maldonae" },
+  "homepage": "https://github.com/maldonae/mods-claude-code/tree/main/plugins/fil",
+  "repository": "https://github.com/maldonae/mods-claude-code",
+  "license": "MIT",
+  "keywords": ["mod", "progression", "sous-agents"],
+  "icon": "./icon.png",
+  "types": "./types/index.d.ts"
+}

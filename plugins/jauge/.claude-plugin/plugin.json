@@ -1,0 +1,12 @@
+{
+  "name": "jauge",
+  "version": "0.1.0",
+  "description": "Bande au-dessus du prompt : contexte, fenêtre 5h, consommation récente, limite 7 jours. /jauge pour activer/désactiver.",
+  "author": { "name": "Eric Maldonado", "url": "https://github.com/maldonae" },
+  "homepage": "https://github.com/maldonae/mods-claude-code/tree/main/plugins/jauge",
+  "repository": "https://github.com/maldonae/mods-claude-code",
+  "license": "MIT",
+  "keywords": ["mod", "contexte", "quota"],
+  "icon": "./icon.png",
+  "types": "./types/index.d.ts"
+}

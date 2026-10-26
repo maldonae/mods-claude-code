@@ -1,0 +1,13 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="512" height="512" viewBox="0 0 512 512">
+  <title>relay</title>
+  <rect width="512" height="512" rx="112" fill="#1E1B4B"/>
+  <g fill="none" stroke="#FFFFFF" stroke-width="32" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M120 112 H244 L292 160 V400 H120 Z"/>
+    <line x1="164" y1="240" x2="240" y2="240"/>
+    <line x1="164" y1="312" x2="220" y2="312"/>
+  </g>
+  <g fill="none" stroke="#FBBF24" stroke-width="32" stroke-linecap="round" stroke-linejoin="round">
+    <line x1="300" y1="300" x2="404" y2="300"/>
+    <path d="M356 252 L404 300 L356 348"/>
+  </g>
+</svg>

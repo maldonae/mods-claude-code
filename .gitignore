@@ -1,0 +1,20 @@
+# Dépendances et sorties locales
+node_modules/
+coverage/
+*.log
+
+# Types écrits par le moteur Claude Code au chargement d'un mod
+.claude-plugin/types/
+
+# Fiches de relay et secrets : jamais versionnés
+.claude/relay/
+.env
+.env.*
+*.key
+*.pem
+
+# Système / éditeur
+.DS_Store
+Thumbs.db
+*~
+*.swp

@@ -1,0 +1,13 @@
+{
+  // Contrôle du test Node avec le vrai modèle : types Node, imports `.ts`, sans émission.
+  // include/exclude redéfinis : l'exclusion des *.eval.mts de tsconfig.json ne s'applique pas ici.
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "noEmit": true,
+    "allowImportingTsExtensions": true,
+    "typeRoots": [".claude-plugin/types", "../../node_modules/@types"],
+    "types": ["claude-code", "claude-code-tools", "claude-code-mcp", "node"]
+  },
+  "include": ["tests/**/*.eval.mts", "types/**/*.d.ts"],
+  "exclude": []
+}

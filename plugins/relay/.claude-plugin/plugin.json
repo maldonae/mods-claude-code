@@ -1,0 +1,12 @@
+{
+  "name": "relay",
+  "version": "0.1.0",
+  "description": "Passe le relais avant que le contexte sature : fiche de reprise markdown + prompt prêt à coller dans une nouvelle session",
+  "author": { "name": "Eric Maldonado", "url": "https://github.com/maldonae" },
+  "homepage": "https://github.com/maldonae/mods-claude-code/tree/main/plugins/relay",
+  "repository": "https://github.com/maldonae/mods-claude-code",
+  "license": "MIT",
+  "keywords": ["mod", "contexte", "reprise"],
+  "icon": "./icon.png",
+  "types": "./types/index.d.ts"
+}

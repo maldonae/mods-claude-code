@@ -1,0 +1,10 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="512" height="512" viewBox="0 0 512 512">
+  <title>pen</title>
+  <rect width="512" height="512" rx="112" fill="#1E1B4B"/>
+  <g fill="none" stroke="#FFFFFF" stroke-width="32" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M140 372 L156 300 L322 134 L378 190 L212 356 Z"/>
+    <line x1="290" y1="166" x2="346" y2="222"/>
+  </g>
+  <path d="M164 96 Q170 140 208 146 Q170 152 164 196 Q158 152 120 146 Q158 140 164 96 Z" fill="#FBBF24"/>
+  <path d="M380 316 Q384 342 408 346 Q384 350 380 376 Q376 350 352 346 Q376 342 380 316 Z" fill="#FBBF24"/>
+</svg>
