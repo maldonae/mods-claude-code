@@ -4,7 +4,7 @@
 
 <h1 align="center">maldonae-mods</h1>
 
-<p align="center">Mods pour <a href="https://code.claude.com/docs">Claude Code</a> : de petites bandes au-dessus du champ de saisie pour suivre l'usage, voir la progression, enchaîner les actions, mieux écrire ses prompts, passer le relais avant que le contexte sature et contrôler la qualité avant chaque commit.</p>
+<p align="center">Mods pour <a href="https://code.claude.com/docs">Claude Code</a> : de petites bandes au-dessus du champ de saisie pour suivre l'usage, voir la progression, enchaîner les actions, mieux écrire ses prompts, passer le relais avant que le contexte sature contrôler la qualité avant chaque commit et refactoriser pas à pas.</p>
 
 Ce dépôt est une **marketplace de plugins Claude Code**. Ajoutez-la une fois, puis installez seulement les mods qui vous intéressent.
 
@@ -32,6 +32,7 @@ claude plugin marketplace add maldonae/mods-claude-code
 | <img src="assets/plugins/pen/pen-icon.png" alt="" width="48" height="48"> | [**pen**](plugins/pen) | Bouton « Améliorer le prompt » : réécrit le brouillon en prompt clair et structuré, sans l'envoyer. | `/plugin install pen@maldonae-mods` |
 | <img src="assets/plugins/relay/relay-icon.png" alt="" width="48" height="48"> | [**relay**](plugins/relay) | Fiche de reprise markdown et prompt prêt à coller dans une nouvelle session. | `/plugin install relay@maldonae-mods` |
 | <img src="assets/plugins/qa-guardian/qa-guardian-icon.png" alt="" width="48" height="48"> | [**qa-guardian**](plugins/qa-guardian) | Avant chaque `git commit` de Claude : tests, lint, TODO, secrets, fichiers suspects ; bande verte, orange ou rouge, commit bloqué si secret ou test en échec. `/qa --report` écrit `qa-report.md`. | `/plugin install qa-guardian@maldonae-mods` |
+| <img src="assets/plugins/refactor/refactor-icon.png" alt="" width="48" height="48"> | [**refactor**](plugins/refactor) | `/refactor <chemin>` : analyse, plan classé par priorité et risque, validé avant toute modification, puis une étape à la fois avec diff et tests ; nettoyages Knip confirmés un par un. `--plan-only` ne modifie rien. | `/plugin install refactor@maldonae-mods` |
 
 Depuis un shell, remplacez `/plugin install` par `claude plugin install` (par exemple `claude plugin install pen@maldonae-mods`). Choisissez la portée **user** pour retrouver le mod dans toutes vos sessions.
 
@@ -41,7 +42,8 @@ Après l'installation, fermez la session Claude Code **et** VS Code, puis rouvre
 
 - **Claude Code** en terminal, récent : ces plugins sont des *mods* (modules de hooks TypeScript chargés par Claude Code). Testés avec Claude Code **2.1.310** sous Windows 11.
 - `git`, pour que Claude Code clone la marketplace. Dépôt public : aucun compte GitHub nécessaire. Sans clé SSH GitHub, si l'ajout échoue, définissez `CLAUDE_CODE_PLUGIN_PREFER_HTTPS=1`.
-- **Aucune clé d'API, aucune variable d'environnement, aucun serveur MCP** : cap, pen et relay utilisent le modèle de votre session Claude Code.
+- **Aucune clé d'API, aucune variable d'environnement, aucun serveur MCP** : cap, pen, relay et refactor utilisent le modèle de votre session Claude Code.
+- Facultatif pour refactor : [Knip](https://knip.dev) dans le projet (`npm install -D knip`).
 
 ## Comportements à connaître
 
@@ -53,6 +55,7 @@ Après l'installation, fermez la session Claude Code **et** VS Code, puis rouvre
 | pen | 1 appel Sonnet par clic sur le bouton | aucun | aucun | état activé |
 | relay | 1 appel (copie de la conversation, sans outils) par relais confirmé | écrit `.claude/relay/relay-AAAA-MM-JJ-HHMM.md` dans le dossier courant, sans jamais écraser | aucun | seuil, état activé |
 | qa-guardian | aucun | lit `package.json` ; écrit `qa-report.md` uniquement sur `/qa --report` ; ne lit jamais `.env`, `*.key`, `*.pem` | `git` (lecture : diff, status), scripts `test` et `lint` du projet via pnpm, yarn ou npm, avant chaque `git commit` lancé par Claude et sur `/qa` | non |
+| refactor | aucun appel direct : `/refactor` soumet l'analyse puis chaque étape comme un message à votre session (tours ordinaires) | lit `package.json` et les fichiers modifiés (recherche de secrets) ; n'écrit rien lui-même | aucun (Claude lance `npx knip` et les tests par Bash) | non |
 
 - Les appels au modèle consomment votre quota Claude Code ; aucune donnée n'est envoyée ailleurs.
 - Rien n'est jamais envoyé à votre place : cap et pen **remplissent** le champ, vous validez avec Entrée.
@@ -69,8 +72,14 @@ Chaque mod déclare un seul module, `hooks/hooks.json` → `hooks/register.tsx`,
 - pen : `session.start`, `command.run`, `ui.render`
 - relay : `session.start`, `command.run`, `session.measure`, `ui.render`
 - qa-guardian : `session.start`, `command.run`, `tool.call` (Bash, sur `git commit` uniquement), `ui.render`
+- refactor : `session.start`, `command.run`, `tool.call` (ses outils `mcp__refactor__plan` et `mcp__refactor__step` ; Edit, Write, NotebookEdit, Bash, PowerShell), `turn.start`, `turn.complete`, `ui.render` (bande et panneau)
 
-Seul qa-guardian peut bloquer un appel d'outil : un `git commit` lancé par Claude, quand un secret ou un test en échec est détecté (désactivable avec `/qa off`). Aucun mod ne modifie un appel d'outil.
+Deux mods peuvent bloquer un appel d'outil :
+
+- qa-guardian : un `git commit` lancé par Claude, quand un secret ou un test en échec est détecté (désactivable avec `/qa off`) ;
+- refactor : pendant un `/refactor` seulement, toute écriture avant validation du plan, hors du périmètre ou sur un fichier sensible, et `git commit` / `push` / `reset --hard`, les suppressions et les écritures par le shell ; `npx knip --fix` est refusé à tout moment.
+
+Aucun mod ne modifie un appel d'outil.
 
 ## Mettre à jour
 
