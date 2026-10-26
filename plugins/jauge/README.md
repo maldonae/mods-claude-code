@@ -1,3 +1,5 @@
+<img src="icon.png" alt="" width="128" height="128">
+
 # jauge
 
 **jauge** affiche au-dessus du champ de saisie l'usage de votre session, une ligne par mesure :

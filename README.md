@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="assets/marketplace/maldonae-mods-icon.png" alt="Icône de la marketplace maldonae-mods" width="128" height="128">
+  <img src="assets/marketplace/maldonae-mods-icon.png" alt="Icône de la marketplace maldonae-mods" width="192" height="192">
 </p>
 
 <h1 align="center">maldonae-mods</h1>
@@ -26,13 +26,13 @@ claude plugin marketplace add maldonae/mods-claude-code
 
 | | Mod | Ce qu'il fait | Installation |
 |---|---|---|---|
-| <img src="assets/plugins/cap/cap-icon.png" alt="" width="48" height="48"> | [**cap**](plugins/cap) | Après chaque réponse, 3 actions suivantes cliquables ; un clic remplit le champ sans l'envoyer. | `/plugin install cap@maldonae-mods` |
-| <img src="assets/plugins/fil/fil-icon.png" alt="" width="48" height="48"> | [**fil**](plugins/fil) | Barres de progression du tour en cours et des sous-agents. | `/plugin install fil@maldonae-mods` |
-| <img src="assets/plugins/jauge/jauge-icon.png" alt="" width="48" height="48"> | [**jauge**](plugins/jauge) | Contexte utilisé, fenêtre 5 h, limite 7 jours, tokens du dernier tour. | `/plugin install jauge@maldonae-mods` |
-| <img src="assets/plugins/pen/pen-icon.png" alt="" width="48" height="48"> | [**pen**](plugins/pen) | Bouton « Améliorer le prompt » : réécrit le brouillon en prompt clair et structuré, sans l'envoyer. | `/plugin install pen@maldonae-mods` |
-| <img src="assets/plugins/relay/relay-icon.png" alt="" width="48" height="48"> | [**relay**](plugins/relay) | Fiche de reprise markdown et prompt prêt à coller dans une nouvelle session. | `/plugin install relay@maldonae-mods` |
-| <img src="assets/plugins/qa-guardian/qa-guardian-icon.png" alt="" width="48" height="48"> | [**qa-guardian**](plugins/qa-guardian) | Avant chaque `git commit` de Claude : tests, lint, TODO, secrets, fichiers suspects ; bande verte, orange ou rouge, commit bloqué si secret ou test en échec. `/qa --report` écrit `qa-report.md`. | `/plugin install qa-guardian@maldonae-mods` |
-| <img src="assets/plugins/refactor/refactor-icon.png" alt="" width="48" height="48"> | [**refactor**](plugins/refactor) | `/refactor <chemin>` : analyse, plan classé par priorité et risque, validé avant toute modification, puis une étape à la fois avec diff et tests ; nettoyages Knip confirmés un par un. `--plan-only` ne modifie rien. | `/plugin install refactor@maldonae-mods` |
+| <img src="assets/plugins/cap/cap-icon.png" alt="" width="96" height="96"> | [**cap**](plugins/cap) | Après chaque réponse, 3 actions suivantes cliquables ; un clic remplit le champ sans l'envoyer. | `/plugin install cap@maldonae-mods` |
+| <img src="assets/plugins/fil/fil-icon.png" alt="" width="96" height="96"> | [**fil**](plugins/fil) | Barres de progression du tour en cours et des sous-agents. | `/plugin install fil@maldonae-mods` |
+| <img src="assets/plugins/jauge/jauge-icon.png" alt="" width="96" height="96"> | [**jauge**](plugins/jauge) | Contexte utilisé, fenêtre 5 h, limite 7 jours, tokens du dernier tour. | `/plugin install jauge@maldonae-mods` |
+| <img src="assets/plugins/pen/pen-icon.png" alt="" width="96" height="96"> | [**pen**](plugins/pen) | Bouton « Améliorer le prompt » : réécrit le brouillon en prompt clair et structuré, sans l'envoyer. | `/plugin install pen@maldonae-mods` |
+| <img src="assets/plugins/relay/relay-icon.png" alt="" width="96" height="96"> | [**relay**](plugins/relay) | Fiche de reprise markdown et prompt prêt à coller dans une nouvelle session. | `/plugin install relay@maldonae-mods` |
+| <img src="assets/plugins/qa-guardian/qa-guardian-icon.png" alt="" width="96" height="96"> | [**qa-guardian**](plugins/qa-guardian) | Avant chaque `git commit` de Claude : tests, lint, TODO, secrets, fichiers suspects ; bande verte, orange ou rouge, commit bloqué si secret ou test en échec. `/qa --report` écrit `qa-report.md`. | `/plugin install qa-guardian@maldonae-mods` |
+| <img src="assets/plugins/refactor/refactor-icon.png" alt="" width="96" height="96"> | [**refactor**](plugins/refactor) | `/refactor <chemin>` : analyse, plan classé par priorité et risque, validé avant toute modification, puis une étape à la fois avec diff et tests ; nettoyages Knip confirmés un par un. `--plan-only` ne modifie rien. | `/plugin install refactor@maldonae-mods` |
 
 Depuis un shell, remplacez `/plugin install` par `claude plugin install` (par exemple `claude plugin install pen@maldonae-mods`). Choisissez la portée **user** pour retrouver le mod dans toutes vos sessions.
 
