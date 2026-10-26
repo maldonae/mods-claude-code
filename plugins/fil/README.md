@@ -1,3 +1,5 @@
+<img src="icon.png" alt="" width="128" height="128">
+
 # fil
 
 **fil** affiche des barres de progression au-dessus du champ de saisie : une pour le tour en cours, une par sous-agent, avec le temps écoulé et l'étape courante (outil appelé, fichier lu…).

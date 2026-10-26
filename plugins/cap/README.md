@@ -1,3 +1,5 @@
+<img src="icon.png" alt="" width="128" height="128">
+
 # cap
 
 Après chaque réponse de Claude, **cap** propose 3 actions suivantes sous forme de boutons, au-dessus du champ de saisie. Choisir un bouton **remplit le champ sans l'envoyer** : vous relisez, modifiez si besoin, puis validez avec Entrée.

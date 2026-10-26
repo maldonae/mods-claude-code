@@ -1,3 +1,5 @@
+<img src="icon.png" alt="" width="128" height="128">
+
 # relay
 
 Mod Claude Code qui aide à **passer le relais** avant que le contexte sature : Claude rédige une fiche de reprise en markdown dans le dossier courant, et le mod génère un prompt concis à coller dans une nouvelle session.

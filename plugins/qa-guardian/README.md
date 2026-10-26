@@ -1,4 +1,4 @@
-<img src="icon.png" alt="" width="64" height="64">
+<img src="icon.png" alt="" width="128" height="128">
 
 # qa-guardian
 

@@ -1,3 +1,5 @@
+<img src="icon.png" alt="" width="128" height="128">
+
 # pen
 
 **pen** ajoute un bouton **Améliorer le prompt** au-dessus du champ de saisie. Un clic réécrit votre brouillon en prompt clair, structuré et actionnable, puis **remplace le texte du champ sans l'envoyer** : vous relisez, ajustez si besoin, puis validez avec Entrée.
