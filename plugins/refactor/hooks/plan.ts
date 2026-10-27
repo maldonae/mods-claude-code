@@ -116,9 +116,26 @@ export function knipStatusOf(packageJson: string | null, hasBin: boolean): KnipS
 const KNIP = /(^|[\s/"'`=])knip(\.cmd|@[\w.^~-]+)?(?=$|[\s"'`])/
 const KNIP_FIX = /(^|[\s"'`=])--(fix|fix-type|allow-remove-files)(?=$|[\s"'`=])/
 
-/** La commande sans le corps de ses heredocs (message de commit…). */
+const HEREDOC = /<<-?\s*(['"]?)(\w+)\1/
+
+/**
+ * La commande sans le corps de ses heredocs (message de commit…), lue ligne par ligne.
+ * Le reste de la ligne d'ouverture est gardé (`cat <<EOF > f` reste une écriture) ;
+ * un heredoc sans délimiteur de fin est gardé tel quel.
+ */
 export function withoutHeredocs(command: string): string {
-  return command.replace(/<<-?\s*(['"]?)(\w+)\1[^\n]*\n[\s\S]*?\n\s*\2(?=\n|$)/g, '<<heredoc')
+  const lines = command.split('\n')
+  const out: string[] = []
+  let i = 0
+  while (i < lines.length) {
+    const line = lines[i] ?? ''
+    const m = HEREDOC.exec(line)
+    const end = m ? lines.findIndex((l, j) => j > i && l.trim() === m[2]) : -1
+    // Heredoc fermé : on saute son corps et son délimiteur.
+    out.push(m && end >= 0 ? line.replace(HEREDOC, '<<heredoc') : line)
+    i = m && end >= 0 ? end + 1 : i + 1
+  }
+  return out.join('\n')
 }
 
 /** Les commandes simples (entre `;`, `&`, `|` et retours à la ligne) qui lancent Knip. */

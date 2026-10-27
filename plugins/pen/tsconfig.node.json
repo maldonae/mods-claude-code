@@ -8,6 +8,6 @@
     "typeRoots": [".claude-plugin/types", "../../node_modules/@types"],
     "types": ["claude-code", "claude-code-tools", "claude-code-mcp", "node"]
   },
-  "include": ["tests/**/*.eval.mts", "types/**/*.d.ts"],
+  "include": ["tests/**/*.eval.mts", "tests/**/*.node.mts", "types/**/*.d.ts"],
   "exclude": []
 }

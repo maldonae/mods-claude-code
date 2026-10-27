@@ -1,5 +1,7 @@
 {
   "extends": "./.claude-plugin/types/tsconfig.json",
   // relay.ts importe './guard.ts' avec l'extension, comme cap : le moteur l'accepte.
-  "compilerOptions": { "allowImportingTsExtensions": true }
+  "compilerOptions": { "allowImportingTsExtensions": true },
+  // Les tests Node (*.node.mts) sont vérifiés par tsconfig.node.json.
+  "exclude": ["tests/**/*.node.mts"]
 }
