@@ -146,14 +146,18 @@ describe('band', () => {
   })
 })
 
-// The engine beneath fil, with a store that fails on demand.
-const failingEngine = (on: On, fail: { get?: boolean; set?: boolean; delete?: boolean }) => {
-  const calls = { registered: 0, sets: 0, deletes: 0 }
-  const store: Record<string, unknown> = {}
+// The engine beneath fil, with a store that fails on demand (`fail` can change mid-test).
+type Fail = { get?: boolean; set?: boolean; delete?: boolean; keys?: boolean }
+const failingEngine = (on: On, fail: Fail, entries: Record<string, unknown> = {}) => {
+  const calls = { registered: 0, opens: 0, setTries: 0, sets: 0, deletes: 0 }
+  const store: Record<string, unknown> = { ...entries }
   on('session.start', (_$, e) => ({ cwd: e.cwd }))
   on('session.end', (_$, e) => ({ sessionId: e.sessionId }))
   on('session.id', () => ({ value: 'session-1' }) as never)
-  on('ui.open', () => ({ value: { isPlaced: true } }) as never)
+  on('ui.open', () => {
+    calls.opens += 1
+    return { value: { isPlaced: true } } as never
+  })
   on('ui.status', () => ({ value: undefined }) as never)
   on('command.register', () => {
     calls.registered += 1
@@ -164,12 +168,16 @@ const failingEngine = (on: On, fail: { get?: boolean; set?: boolean; delete?: bo
     return { value: store[e.key] } as never
   })
   on('store.set', (_$, e) => {
+    calls.setTries += 1
     if (fail.set) throw new Error('read-only store')
     calls.sets += 1
     store[e.key] = e.value
     return { value: undefined } as never
   })
-  on('store.keys', () => ({ value: Object.keys(store) }) as never)
+  on('store.keys', () => {
+    if (fail.keys) throw new Error('unreadable store')
+    return { value: Object.keys(store) } as never
+  })
   on('store.delete', (_$, e) => {
     calls.deletes += 1
     if (fail.delete) throw new Error('read-only store')
@@ -186,26 +194,33 @@ const failingEngine = (on: On, fail: { get?: boolean; set?: boolean; delete?: bo
 }
 
 const START = { cwd: '/projets/fil', surface: 'terminal' as const, isInteractive: true }
+const END = { reason: 'other' as const, sessionId: 'session-1', resume: { id: 'session-1' } }
 
+// Each test starts its own session: session.start resets fil's sharing state,
+// so nothing depends on the tests before it.
 describe('storage errors', () => {
-  test('store.get fails: session.start completes, fil keeps its default', async ($, on) => {
+  test('store.get fails: session.start completes, no pane opens, /fil status says so', async ($, on) => {
     mock.clock(on, { now: 4_000_000 })
     const calls = failingEngine(on, { get: true })
 
     expect(await $.session.start(START)).toMatchObject({ cwd: '/projets/fil' })
     expect(calls.registered).toBe(1)
+    expect(calls.opens).toBe(0)
     const status = await $.command.run({ command: 'fil', args: 'status', ...TYPED })
-    expect(status.text).toContain('fil activé')
+    expect(status.text).toContain('fil activé (choix enregistré illisible)')
   })
 
   test('store.set fails on /fil off: fil turns off, says so, and clears its tasks', async ($, on) => {
     mock.clock(on, { now: 5_000_000 })
     const calls = failingEngine(on, { set: true })
 
+    await $.session.start(START)
     await $.turn.start({ text: 'Tâche en cours', turnId: 't1' })
     await $.tool.call({ tool: 'Read', file_path: '/a.ts' })
     const off = await $.command.run({ command: 'fil', args: 'off', ...TYPED })
     expect(off.text).toBe('fil désactivé. (choix non conservé pour les prochaines sessions)')
+    // The write was tried, and refused.
+    expect(calls.setTries).toBe(1)
     expect(calls.sets).toBe(0)
 
     const ui = await $.ui.mount({ ...BAND, surface: 'terminal' })
@@ -215,19 +230,45 @@ describe('storage errors', () => {
     expect(status.text).toContain('0 tâche(s)')
   })
 
-  test('store.delete fails at session end: session.end completes', async ($, on) => {
+  test('store.delete fails at session end: session.end completes, no tick publishes again', async ($, on) => {
     const clock = mock.clock(on, { now: 6_000_000 })
     const calls = failingEngine(on, { delete: true })
 
     await $.session.start(START)
     await $.turn.start({ text: 'Tâche partagée', turnId: 't1' })
-    // Two ticks at least: the even one publishes this session's tasks.
-    await clock.advance(3000)
-    expect(calls.sets).toBeGreaterThan(0)
+    // Ticks 1 and 2 after the start: the second one publishes.
+    await clock.advance(2000)
+    expect(calls.sets).toBe(1)
 
-    const end = await $.session.end({ reason: 'other', sessionId: 'session-1', resume: { id: 'session-1' } })
-    expect(end).toMatchObject({ sessionId: 'session-1' })
-    expect(calls.deletes).toBeGreaterThan(0)
+    expect(await $.session.end(END)).toMatchObject({ sessionId: 'session-1' })
+    expect(calls.deletes).toBe(1)
+    await clock.advance(4000)
+    expect(calls.sets).toBe(1)
+  })
+
+  test('unreadable store in tick: the update is skipped, then stale bars are dropped', async ($, on) => {
+    const clock = mock.clock(on, { now: 7_000_000 })
+    // Another session, kept fresh: only the unreadable store can drop its bar.
+    const other = { updatedAt: 9_000_000_000, label: 'autre', tasks: [newTask({ id: 'o', kind: 'turn', agentId: null, title: 'Tâche distante', startedAt: 7_000_000 })] }
+    const fail: Fail = {}
+    failingEngine(on, fail, { 's:other': other })
+
+    await $.session.start(START)
+    await clock.advance(2000)
+    let ui = await $.ui.mount({ ...BAND, surface: 'terminal' })
+    expect(await ui.find({ type: 'Text', text: /⇄ autre · Tâche distante/ })).toBeDefined()
+    await ui.unmount()
+
+    fail.keys = true
+    await clock.advance(4000)
+    ui = await $.ui.mount({ ...BAND, surface: 'terminal' })
+    expect(await ui.find({ type: 'Text', text: /⇄ autre/ })).toBeDefined()
+    await ui.unmount()
+
+    await clock.advance(10_000)
+    ui = await $.ui.mount({ ...BAND, surface: 'terminal' })
+    expect(await ui.find({ type: 'Text', text: /⇄ autre/ })).toBeUndefined()
+    expect(await ui.find({ type: 'Text', text: 'engine' })).toBeDefined()
   })
 })
 
