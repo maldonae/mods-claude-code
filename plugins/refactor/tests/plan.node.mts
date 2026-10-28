@@ -123,6 +123,23 @@ describe('refactor/hooks/plan.ts', () => {
     assert.equal(withoutHeredocs('cat <<-EOF > out.txt\n\tcorps\n\tEOF'), 'cat <<heredoc > out.txt')
     assert.equal(withoutHeredocs('cat <<EOF\nsans fin'), 'cat <<EOF\nsans fin')
     assert.equal(withoutHeredocs('ls -la'), 'ls -la')
+    assert.equal(withoutHeredocs('git commit -F - <<A 3<<"B"\nmsg\nA\nknip --fix\nB\nls'), 'git commit -F - <<heredoc 3<<heredoc\nls')
+  })
+
+  test('withoutHeredocs ne masque pas de vraies commandes', () => {
+    // here-string, délimiteur collé, `<<` entre guillemets ou en commentaire : rien n'est ouvert
+    for (const command of [
+      'cat <<<EOF\nnpx knip --fix\nEOF',
+      "cat <<'EOF'x\nEOFx\nnpx knip --fix\nEOF",
+      'echo "<<EOF"\nnpx knip --fix\nEOF',
+      "echo '<<EOF'\nnpx knip --fix\nEOF",
+      'ls # <<EOF\nnpx knip --fix\nEOF',
+    ]) {
+      assert.equal(withoutHeredocs(command), command)
+      assert.ok(knipFixVerdict(command), command)
+    }
+    assert.ok(shellVerdict('cat <<<EOF\necho x > src/a.ts\nEOF'))
+    assert.equal(withoutHeredocs('echo a#<<EOF\nx\nEOF'), 'echo a#<<heredoc')
   })
 
   test('knipFixVerdict', () => {
