@@ -18,3 +18,7 @@ coverage/
 Thumbs.db
 *~
 *.swp
+
+# Sortie de tsc lancée par erreur : les mods tournent depuis les .ts/.tsx
+plugins/**/hooks/*.js
+plugins/**/tests/*.js

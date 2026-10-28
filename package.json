@@ -6,7 +6,7 @@
   "license": "MIT",
   "scripts": {
     "check:guard": "node scripts/check-guard.mjs",
-    "test:node": "node --test plugins/cap/tests/suggest.node.mts plugins/fil/tests/progress.node.mts plugins/jauge/tests/format.node.mts",
+    "test:node": "node --test plugins/cap/tests/suggest.node.mts plugins/fil/tests/progress.node.mts plugins/jauge/tests/format.node.mts plugins/pen/tests/rewrite.node.mts plugins/relay/tests/relay.node.mts plugins/refactor/tests/plan.node.mts",
     "test:mods": "claude plugin test plugins/cap && claude plugin test plugins/fil && claude plugin test plugins/jauge && claude plugin test plugins/pen && claude plugin test plugins/relay && claude plugin test plugins/qa-guardian && claude plugin test plugins/refactor",
     "validate": "claude plugin validate .",
     "quality": "npm run check:guard && npm run test:node && npm run validate"

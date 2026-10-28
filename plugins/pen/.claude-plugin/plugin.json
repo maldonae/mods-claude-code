@@ -1,6 +1,6 @@
 {
   "name": "pen",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "Bouton « Améliorer le prompt » au-dessus du champ : réécrit le brouillon en prompt clair et structuré, sans l'envoyer. /pen pour activer/désactiver.",
   "author": { "name": "Eric Maldonado", "url": "https://github.com/maldonae" },
   "homepage": "https://github.com/maldonae/mods-claude-code/tree/main/plugins/pen",

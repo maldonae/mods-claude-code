@@ -6,7 +6,7 @@
 // Zéro-largeur, contrôles bidi, tags Unicode (« ASCII smuggling »), BOM, trait d'union
 // conditionnel, contrôles C0/C1 sauf saut de ligne et tabulation : invisibles à l'écran.
 const INVISIBLE =
-  /[\u0000-\u0008\u000B-\u001F\u007F-\u009F­​-‏‪-‮⁠-⁤⁦-⁩﻿]|\uDB40[\uDC00-\uDC7F]/g
+  /[\u0000-\u0008\u000B-\u001F\u007F-\u009F\u00AD\u200B-\u200F\u202A-\u202E\u2060-\u2064\u2066-\u2069\uFEFF]|\uDB40[\uDC00-\uDC7F]/g
 
 export const stripInvisible = (text: string): { text: string; removed: number } => {
   let removed = 0
@@ -63,7 +63,13 @@ const IP = /\b\d{1,3}(?:\.\d{1,3}){3}\b/g
 // Long bloc base64 ou hexadécimal : charge encodée illisible pour l'utilisateur.
 const BLOB = /[A-Za-z0-9+/=]{60,}|\b[0-9a-f]{40,}\b/gi
 
-const trimEnd = (s: string): string => s.replace(/[.,;:!?»]+$/, '').toLowerCase()
+// Ponctuation finale retirée par une boucle (pas de regex ancrée en fin : backtracking).
+const TRAILING = new Set('.,;:!?»')
+const trimEnd = (s: string): string => {
+  let end = s.length
+  while (end > 0 && TRAILING.has(s.charAt(end - 1))) end -= 1
+  return s.slice(0, end).toLowerCase()
+}
 const itemsOf = (text: string, r: RegExp): Set<string> =>
   new Set([...text.matchAll(r)].map(m => trimEnd(m[0])))
 

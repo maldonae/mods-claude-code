@@ -116,9 +116,53 @@ export function knipStatusOf(packageJson: string | null, hasBin: boolean): KnipS
 const KNIP = /(^|[\s/"'`=])knip(\.cmd|@[\w.^~-]+)?(?=$|[\s"'`])/
 const KNIP_FIX = /(^|[\s"'`=])--(fix|fix-type|allow-remove-files)(?=$|[\s"'`=])/
 
-/** La commande sans le corps de ses heredocs (message de commit…). */
+// `<<` ouvre un heredoc, pas `<<<` (here-string). Le délimiteur doit finir sur un blanc ou un
+// opérateur : `<<'EOF'x` (délimiteur réel `EOFx`) n'est pas reconnu, son corps reste analysé.
+const HEREDOC = /(?<!<)<<-?[ \t]*(?:'(\w+)'|"(\w+)"|(\w+))(?=$|[\s;&|()<>])/g
+// Chaînes et commentaires : un `<<` qui s'y trouve n'ouvre rien.
+const INERT = /"(?:[^"\\]|\\.)*"|'[^']*'|(?<![^\s;&|(])#.*$/g
+
+/** Les heredocs ouverts sur `line` (dans l'ordre) et la ligne avec ses ouvertures remplacées. */
+function openers(line: string): { text: string; delimiters: string[] } {
+  const inert = [...line.matchAll(INERT)].map(m => [m.index, m.index + m[0].length] as const)
+  const delimiters: string[] = []
+  const text = line.replace(HEREDOC, (match: string, q1?: string, q2?: string, bare?: string, at = 0) => {
+    if (inert.some(([start, end]) => at >= start && at < end)) return match
+    delimiters.push(q1 ?? q2 ?? bare ?? '')
+    return '<<heredoc'
+  })
+  return { text, delimiters }
+}
+
+/** L'index qui suit le dernier délimiteur, ou -1 si un heredoc n'est pas fermé. */
+function bodyEnd(lines: readonly string[], start: number, delimiters: readonly string[]): number {
+  let j = start
+  for (const d of delimiters) {
+    while (j < lines.length && lines[j]?.trim() !== d) j += 1
+    if (j === lines.length) return -1
+    j += 1
+  }
+  return j
+}
+
+/**
+ * La commande sans le corps de ses heredocs (message de commit…), lue ligne par ligne.
+ * Le reste de la ligne d'ouverture est gardé (`cat <<EOF > f` reste une écriture) ;
+ * un heredoc sans délimiteur de fin est gardé tel quel.
+ */
 export function withoutHeredocs(command: string): string {
-  return command.replace(/<<-?\s*(['"]?)(\w+)\1[^\n]*\n[\s\S]*?\n\s*\2(?=\n|$)/g, '<<heredoc')
+  const lines = command.split('\n')
+  const out: string[] = []
+  let i = 0
+  while (i < lines.length) {
+    const line = lines[i] ?? ''
+    const opened = openers(line)
+    const next = opened.delimiters.length > 0 ? bodyEnd(lines, i + 1, opened.delimiters) : -1
+    // Heredocs fermés : on saute leurs corps et leurs délimiteurs.
+    out.push(next < 0 ? line : opened.text)
+    i = next < 0 ? i + 1 : next
+  }
+  return out.join('\n')
 }
 
 /** Les commandes simples (entre `;`, `&`, `|` et retours à la ligne) qui lancent Knip. */
