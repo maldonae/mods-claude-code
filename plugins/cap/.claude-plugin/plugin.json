@@ -1,6 +1,6 @@
 {
   "name": "cap",
-  "version": "0.2.0",
+  "version": "0.2.1",
   "description": "Après chaque tour, 3 actions suivantes cliquables au-dessus du prompt (un clic remplit le champ, sans l'envoyer). /cap pour activer/désactiver.",
   "author": { "name": "Eric Maldonado", "url": "https://github.com/maldonae" },
   "homepage": "https://github.com/maldonae/mods-claude-code/tree/main/plugins/cap",
