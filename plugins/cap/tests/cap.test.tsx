@@ -292,21 +292,28 @@ test('store.set échoue : /cap bascule quand même et le signale', async ($, on)
   expect(await capShows($, calls, clock)).toBe(true)
 })
 
+test('store.set échoue pendant une désactivation : cap s’éteint et le signale', async ($, on) => {
+  // Le stockage garde true : cap reviendra à la session suivante, comme annoncé.
+  const { calls, clock, saved } = engine(on, REPLY, { enabled: true }, { set: true })
+  await start($)
+  expect(await $.command.run(RUN)).toMatchObject({
+    text: 'cap désactivé. (choix non conservé pour les prochaines sessions)',
+  })
+  expect(saved).toEqual([])
+  expect(await capShows($, calls, clock)).toBe(false)
+  expect(calls.model).toBe(0)
+})
+
 test('parcours complet : stockage vide, /cap, puis suggestions', async ($, on) => {
   const { calls, clock, saved } = engine(on, REPLY, {})
   await start($)
-  expect(await capShows($, calls, clock, 't1')).toBe(false)
+  expect(await capShows($, calls, clock)).toBe(false)
   expect(calls.model).toBe(0)
 
   expect(await $.command.run(RUN)).toMatchObject({ text: 'cap activé : 3 suggestions après chaque tour.' })
   expect(saved).toEqual([true])
 
-  await $.turn.start({ text: 'ajoute un parseur', turnId: 't2' })
-  await $.turn.complete({ ...DONE, answer: 'Parseur ajouté, 2 tests échouent.', turnId: 't2' })
-  await clock.advance(1)
-  const ui = await $.ui.mount({ ...BAND, surface: 'terminal' })
-  expect(await ui.findAll({ type: 'Button', text: /Lancer|Documenter|Créer/ })).toHaveLength(3)
-  await ui.unmount()
+  expect(await capShows($, calls, clock, 't2')).toBe(true)
   expect(calls.model).toBe(1)
 })
 
