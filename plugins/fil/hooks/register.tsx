@@ -43,6 +43,8 @@ const ctx = {
   /** The saved /fil choice could not be read at session start. */
   isChoiceUnread: false,
   stopTick: undefined as (() => void) | undefined,
+  /** A tick is running: the next one waits its turn. */
+  isTicking: false,
 }
 /** Events seen since load, for `/fil status`. */
 const seen = { submit: 0, turnStart: 0, tool: 0, complete: 0, render: 0, pane: 0, tick: 0 }
@@ -171,6 +173,9 @@ function drawBars($: EngineInterface, e: RenderInput, shown: readonly FilTask[],
 
 export const register: Register = on => {
   on('session.start', async ($, e, next) => {
+    // The previous session's timer stops before anything is awaited.
+    ctx.stopTick?.()
+    ctx.stopTick = undefined
     await $.command.register({
       name: 'fil',
       description: 'Active ou désactive les barres de progression (fil)',
@@ -189,26 +194,34 @@ export const register: Register = on => {
     ctx.lastShared = 0
     ctx.sessionKey = await $.session.id()
     ctx.label = e.cwd.split(/[\\/]/).filter(Boolean).pop() ?? 'session'
-    ctx.stopTick?.()
     const timer = $.clock.every(1000, () => {
-      void tick($).catch(() => undefined)
+      // One pass at a time: a slow store must not let two ticks overlap.
+      if (ctx.isTicking) return
+      ctx.isTicking = true
+      void tick($)
+        .catch(() => undefined)
+        .finally(() => {
+          ctx.isTicking = false
+        })
     })
     ctx.stopTick = () => timer.cancel()
     // Opened unasked, the pane seats only where the terminal is wide enough,
     // and never when the saved choice could not be read.
-    if (!ctx.isChoiceUnread && (await read($, enabled))) void $.ui.open({ id: PANE, title: 'fil' })
+    if (!ctx.isChoiceUnread && (await read($, enabled))) void $.ui.open({ id: PANE, title: 'fil' }).catch(() => undefined)
 
     return next(e)
   })
 
   on('session.end', async ($, e, next) => {
-    // Best-effort cleanup: a stale entry expires on its own in other sessions.
-    if (ctx.hasPublished && ctx.sessionKey !== '') await $.store.delete(STORE_SESSION + ctx.sessionKey).catch(() => undefined)
-    // No later tick may publish this session again.
+    // Sharing stops first: no tick may publish this session while its entry is deleted.
+    const key = ctx.sessionKey
+    const wasPublished = ctx.hasPublished
     ctx.stopTick?.()
     ctx.stopTick = undefined
     ctx.hasPublished = false
     ctx.sessionKey = ''
+    // Best-effort cleanup: a stale entry expires on its own in other sessions.
+    if (wasPublished && key !== '') await $.store.delete(STORE_SESSION + key).catch(() => undefined)
 
     return next(e)
   })

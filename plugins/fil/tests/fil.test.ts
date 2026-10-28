@@ -210,6 +210,26 @@ describe('storage errors', () => {
     expect(status.text).toContain('fil activé (choix enregistré illisible)')
   })
 
+  test('a readable choice set to on opens the pane at session start', async ($, on) => {
+    mock.clock(on, { now: 4_500_000 })
+    const calls = failingEngine(on, {}, { enabled: true })
+
+    await $.session.start(START)
+    expect(calls.opens).toBe(1)
+    const status = await $.command.run({ command: 'fil', args: 'status', ...TYPED })
+    expect(status.text).not.toContain('illisible')
+  })
+
+  test('a saved enabled: false keeps the pane closed at session start', async ($, on) => {
+    mock.clock(on, { now: 4_600_000 })
+    const calls = failingEngine(on, {}, { enabled: false })
+
+    await $.session.start(START)
+    expect(calls.opens).toBe(0)
+    const status = await $.command.run({ command: 'fil', args: 'status', ...TYPED })
+    expect(status.text).toContain('fil désactivé ·')
+  })
+
   test('store.set fails on /fil off: fil turns off, says so, and clears its tasks', async ($, on) => {
     mock.clock(on, { now: 5_000_000 })
     const calls = failingEngine(on, { set: true })
