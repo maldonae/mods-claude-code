@@ -82,12 +82,13 @@ const engine = (
     const { Text } = $.ui.resolve(e)
     return <Text>moteur</Text>
   })
-  return { calls, clock, saved }
+  return { calls, clock, saved, store }
 }
 
 const start = ($: Engine) => $.session.start({ cwd: '/projet', surface: 'terminal', isInteractive: true })
 
-// Un tour complet : vrai si cap a appelé le modèle et dessiné ses boutons.
+// Un tour complet : vrai si cap a appelé le modèle et dessiné ses 3 suggestions
+// (le bouton × de masquage ne compte pas).
 const capShows = async (
   $: Engine,
   calls: { model: number },
@@ -98,9 +99,9 @@ const capShows = async (
   await $.turn.complete({ ...DONE, answer: 'Parseur ajouté.', turnId })
   await clock.advance(1)
   const ui = await $.ui.mount({ ...BAND, surface: 'terminal' })
-  const buttons = await ui.findAll({ type: 'Button' })
+  const buttons = await ui.findAll({ type: 'Button', text: /Lancer|Documenter|Créer/ })
   await ui.unmount()
-  return calls.model > 0 && buttons.length > 0
+  return calls.model > 0 && buttons.length === 3
 }
 
 test('parseSuggestions garde exactement 3 suggestions valides', () => {
@@ -294,12 +295,13 @@ test('store.set échoue : /cap bascule quand même et le signale', async ($, on)
 
 test('store.set échoue pendant une désactivation : cap s’éteint et le signale', async ($, on) => {
   // Le stockage garde true : cap reviendra à la session suivante, comme annoncé.
-  const { calls, clock, saved } = engine(on, REPLY, { enabled: true }, { set: true })
+  const { calls, clock, saved, store } = engine(on, REPLY, { enabled: true }, { set: true })
   await start($)
   expect(await $.command.run(RUN)).toMatchObject({
     text: 'cap désactivé. (choix non conservé pour les prochaines sessions)',
   })
   expect(saved).toEqual([])
+  expect(store.enabled).toBe(true)
   expect(await capShows($, calls, clock)).toBe(false)
   expect(calls.model).toBe(0)
 })
