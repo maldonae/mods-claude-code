@@ -1,6 +1,6 @@
 {
   "name": "refactor",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "description": "Refactorisation guidée : analyse et plan validé avant toute modification, application étape par étape avec tests, nettoyages Knip confirmés un par un",
   "author": { "name": "Eric Maldonado", "url": "https://github.com/maldonae" },
   "homepage": "https://github.com/maldonae/mods-claude-code/tree/main/plugins/refactor",
