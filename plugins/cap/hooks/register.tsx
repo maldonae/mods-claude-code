@@ -53,7 +53,8 @@ export const register: Register = on => {
       name: 'cap',
       description: 'Active ou désactive les 3 suggestions d’actions au-dessus du prompt',
     })
-    // Stockage illisible : cap reste éteint, les mods suivants démarrent quand même.
+    // Stockage illisible : cap reste éteint et la session continue jusqu'à next(e).
+    // Seule la lecture est protégée : un échec de command.register remonte tel quel.
     const stored = await $.store.get(STORE_ENABLED).catch(() => undefined)
     if (typeof stored === 'boolean') await update($, isEnabled, () => stored)
 
