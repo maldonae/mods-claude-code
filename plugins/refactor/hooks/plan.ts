@@ -120,7 +120,7 @@ const KNIP_FIX = /(^|[\s"'`=])--(fix|fix-type|allow-remove-files)(?=$|[\s"'`=])/
 // opérateur : `<<'EOF'x` (délimiteur réel `EOFx`) n'est pas reconnu, son corps reste analysé.
 const HEREDOC = /(?<!<)<<-?[ \t]*(?:'(\w+)'|"(\w+)"|(\w+))(?=$|[\s;&|()<>])/g
 // Chaînes et commentaires : un `<<` qui s'y trouve n'ouvre rien.
-const INERT = /"(?:[^"\\]|\\.)*"|'[^']*'|(?<![^\s;&|(])#.*$/g
+const INERT = /(?:"(?:[^"\\]|\\.)*"|'[^']*'|(?<![^\s;&|(])#.*$)/g
 
 /** Les heredocs ouverts sur `line` (dans l'ordre) et la ligne avec ses ouvertures remplacées. */
 function openers(line: string): { text: string; delimiters: string[] } {
