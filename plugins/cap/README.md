@@ -21,7 +21,7 @@ cap › [ Lancer les tests ] [ Documenter le mod ] [ ⚠ Nettoyer le dépôt ] �
 
 | Action | Effet |
 |---|---|
-| `/cap` | Active ou désactive les suggestions (actif par défaut) |
+| `/cap` | Active ou désactive les suggestions (désactivé par défaut ; utilise /cap pour l’activer). Le choix est conservé entre les sessions |
 | Ctrl+X, puis Tab, puis Entrée | Choisit une suggestion au clavier |
 | `×` | Masque la ligne jusqu'au tour suivant |
 
@@ -42,7 +42,7 @@ Après l'installation, fermez la session Claude Code **et** VS Code, puis rouvre
 
 - Le texte de la conversation est envoyé au modèle comme **donnée encadrée** : les balises sont neutralisées pour empêcher l'injection d'instructions.
 - Seuls la demande (1 500 derniers caractères) et la fin de la réponse (6 000 derniers caractères) sont transmis.
-- Rien n'est écrit sur disque ni envoyé ailleurs que vers le modèle de la session.
+- Seul l’état activé/désactivé est enregistré dans le stockage local du mod ; rien n’est envoyé ailleurs que vers le modèle de la session.
 - Un appel au modèle par tour : cela consomme un peu de votre quota.
 
 ## Développement
