@@ -53,7 +53,8 @@ export const register: Register = on => {
       name: 'cap',
       description: 'Active ou désactive les 3 suggestions d’actions au-dessus du prompt',
     })
-    const stored = await $.store.get(STORE_ENABLED)
+    // Stockage illisible : cap reste éteint, les mods suivants démarrent quand même.
+    const stored = await $.store.get(STORE_ENABLED).catch(() => undefined)
     if (typeof stored === 'boolean') await update($, isEnabled, () => stored)
 
     return next(e)
@@ -61,14 +62,12 @@ export const register: Register = on => {
 
   on('command.run', { command: 'cap' }, async $ => {
     const now = await update($, isEnabled, v => !v)
-    await $.store.set(STORE_ENABLED, now)
+    // Écriture refusée : le choix vaut pour cette session seulement.
+    const isSaved = await $.store.set(STORE_ENABLED, now).then(() => true).catch(() => false)
     if (!now) await clearAll($, 'idle')
 
-    return {
-      text: now
-        ? 'cap activé : 3 suggestions après chaque tour.'
-        : 'cap désactivé.',
-    }
+    const text = now ? 'cap activé : 3 suggestions après chaque tour.' : 'cap désactivé.'
+    return { text: isSaved ? text : `${text} (choix non conservé pour les prochaines sessions)` }
   })
 
   // Lecture seule : le texte de l'utilisateur passe tel quel.
