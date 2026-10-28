@@ -49,7 +49,7 @@ Après l'installation, fermez la session Claude Code **et** VS Code, puis rouvre
 
 | Mod | Appels au modèle | Fichiers | Processus lancés | Stockage local du mod |
 |---|---|---|---|---|
-| cap | 1 appel Haiku par tour principal (demande + fin de réponse) | aucun | aucun | non |
+| cap | 1 appel Haiku par tour principal (demande + fin de réponse), seulement lorsque cap est activé avec `/cap` | aucun | aucun | état activé |
 | fil | aucun | aucun | signal sonore en fin de tâche longue (`powershell` beep, `afplay` ou `paplay`) | état activé, progression des sessions ouvertes |
 | jauge | aucun | aucun | aucun | non |
 | pen | 1 appel Sonnet par clic sur le bouton | aucun | aucun | état activé |
