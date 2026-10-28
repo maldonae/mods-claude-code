@@ -41,15 +41,28 @@ const DONE = { usage: undefined, durationMs: 1000, isAborted: false, reason: 'an
 
 // Le moteur sous le mod : modèle, prompt, stockage du mod, bande des autres mods.
 // Chaque test part de son propre stockage : cap actif par défaut ici, sauf mention.
-const engine = (on: On, reply = REPLY, stored: Record<string, unknown> = { enabled: true }) => {
-  const calls = { model: 0, fills: [] as { text: string; mode?: string }[], draft: '' }
+// `fail` simule un stockage illisible (get) ou en lecture seule (set).
+const engine = (
+  on: On,
+  reply = REPLY,
+  stored: Record<string, unknown> = { enabled: true },
+  fail: { get?: boolean; set?: boolean } = {},
+) => {
+  const calls = { model: 0, registered: 0, fills: [] as { text: string; mode?: string }[], draft: '' }
   const store: Record<string, unknown> = { ...stored }
   const saved: unknown[] = []
   const clock = mock.clock(on, { now: 0 })
   on('session.start', (_$, e) => ({ cwd: e.cwd }))
-  on('command.register', () => ({ value: undefined }) as never)
-  on('store.get', (_$, e) => ({ value: store[e.key] }) as never)
+  on('command.register', () => {
+    calls.registered += 1
+    return { value: undefined } as never
+  })
+  on('store.get', (_$, e) => {
+    if (fail.get) throw new Error('stockage illisible')
+    return { value: store[e.key] } as never
+  })
   on('store.set', (_$, e) => {
+    if (fail.set) throw new Error('stockage en lecture seule')
     store[e.key] = e.value
     saved.push(e.value)
     return { value: undefined } as never
@@ -75,9 +88,14 @@ const engine = (on: On, reply = REPLY, stored: Record<string, unknown> = { enabl
 const start = ($: Engine) => $.session.start({ cwd: '/projet', surface: 'terminal', isInteractive: true })
 
 // Un tour complet : vrai si cap a appelé le modèle et dessiné ses boutons.
-const capShows = async ($: Engine, calls: { model: number }, clock: { advance: (ms: number) => Promise<unknown> }) => {
-  await $.turn.start({ text: 'ajoute un parseur', turnId: 't1' })
-  await $.turn.complete({ ...DONE, answer: 'Parseur ajouté.', turnId: 't1' })
+const capShows = async (
+  $: Engine,
+  calls: { model: number },
+  clock: { advance: (ms: number) => Promise<unknown> },
+  turnId = 't1',
+) => {
+  await $.turn.start({ text: 'ajoute un parseur', turnId })
+  await $.turn.complete({ ...DONE, answer: 'Parseur ajouté.', turnId })
   await clock.advance(1)
   const ui = await $.ui.mount({ ...BAND, surface: 'terminal' })
   const buttons = await ui.findAll({ type: 'Button' })
@@ -253,6 +271,43 @@ test('préférence invalide : ignorée, cap reste désactivé', async ($, on) =>
   await start($)
   expect(await capShows($, calls, clock)).toBe(false)
   expect(calls.model).toBe(0)
+})
+
+test('store.get échoue : session.start se termine, cap reste désactivé', async ($, on) => {
+  // Le stockage contient true, mais il est illisible : la valeur n'est jamais lue.
+  const { calls, clock } = engine(on, REPLY, { enabled: true }, { get: true })
+  expect(await start($)).toMatchObject({ cwd: '/projet' })
+  expect(calls.registered).toBe(1)
+  expect(await capShows($, calls, clock)).toBe(false)
+  expect(calls.model).toBe(0)
+})
+
+test('store.set échoue : /cap bascule quand même et le signale', async ($, on) => {
+  const { calls, clock, saved } = engine(on, REPLY, {}, { set: true })
+  await start($)
+  expect(await $.command.run(RUN)).toMatchObject({
+    text: 'cap activé : 3 suggestions après chaque tour. (choix non conservé pour les prochaines sessions)',
+  })
+  expect(saved).toEqual([])
+  expect(await capShows($, calls, clock)).toBe(true)
+})
+
+test('parcours complet : stockage vide, /cap, puis suggestions', async ($, on) => {
+  const { calls, clock, saved } = engine(on, REPLY, {})
+  await start($)
+  expect(await capShows($, calls, clock, 't1')).toBe(false)
+  expect(calls.model).toBe(0)
+
+  expect(await $.command.run(RUN)).toMatchObject({ text: 'cap activé : 3 suggestions après chaque tour.' })
+  expect(saved).toEqual([true])
+
+  await $.turn.start({ text: 'ajoute un parseur', turnId: 't2' })
+  await $.turn.complete({ ...DONE, answer: 'Parseur ajouté, 2 tests échouent.', turnId: 't2' })
+  await clock.advance(1)
+  const ui = await $.ui.mount({ ...BAND, surface: 'terminal' })
+  expect(await ui.findAll({ type: 'Button', text: /Lancer|Documenter|Créer/ })).toHaveLength(3)
+  await ui.unmount()
+  expect(calls.model).toBe(1)
 })
 
 test('réponse illisible, tour interrompu ou subagent : rien d’affiché', async ($, on) => {
