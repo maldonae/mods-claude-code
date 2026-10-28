@@ -1,4 +1,4 @@
-import type { RenderElement } from 'claude-code'
+import type { On, RenderElement } from 'claude-code'
 import { describe, expect, mock, test } from 'claude-code/testing'
 
 import { applyPlan, bar, estimate, formatElapsed, newTask, statusText, stepOf } from '../hooks/progress'
@@ -143,6 +143,91 @@ describe('band', () => {
     await $.tool.call({ tool: 'Read', file_path: '/b.ts' })
     ui = await $.ui.mount({ ...BAND, surface: 'terminal' })
     expect(await ui.find({ type: 'Text', text: /Visible/ })).toBeDefined()
+  })
+})
+
+// The engine beneath fil, with a store that fails on demand.
+const failingEngine = (on: On, fail: { get?: boolean; set?: boolean; delete?: boolean }) => {
+  const calls = { registered: 0, sets: 0, deletes: 0 }
+  const store: Record<string, unknown> = {}
+  on('session.start', (_$, e) => ({ cwd: e.cwd }))
+  on('session.end', (_$, e) => ({ sessionId: e.sessionId }))
+  on('session.id', () => ({ value: 'session-1' }) as never)
+  on('ui.open', () => ({ value: { isPlaced: true } }) as never)
+  on('ui.status', () => ({ value: undefined }) as never)
+  on('command.register', () => {
+    calls.registered += 1
+    return { value: undefined } as never
+  })
+  on('store.get', (_$, e) => {
+    if (fail.get) throw new Error('unreadable store')
+    return { value: store[e.key] } as never
+  })
+  on('store.set', (_$, e) => {
+    if (fail.set) throw new Error('read-only store')
+    calls.sets += 1
+    store[e.key] = e.value
+    return { value: undefined } as never
+  })
+  on('store.keys', () => ({ value: Object.keys(store) }) as never)
+  on('store.delete', (_$, e) => {
+    calls.deletes += 1
+    if (fail.delete) throw new Error('read-only store')
+    delete store[e.key]
+    return { value: undefined } as never
+  })
+  on('turn.start', (_$, e) => ({ turnId: e.turnId }))
+  on('tool.call', () => ({ deny: 'test bottom' }))
+  on('ui.render', { component: 'AbovePrompt' }, ($, e) => {
+    const { Text } = $.ui.resolve(e)
+    return h(Text, null, 'engine') as RenderElement
+  })
+  return calls
+}
+
+const START = { cwd: '/projets/fil', surface: 'terminal' as const, isInteractive: true }
+
+describe('storage errors', () => {
+  test('store.get fails: session.start completes, fil keeps its default', async ($, on) => {
+    mock.clock(on, { now: 4_000_000 })
+    const calls = failingEngine(on, { get: true })
+
+    expect(await $.session.start(START)).toMatchObject({ cwd: '/projets/fil' })
+    expect(calls.registered).toBe(1)
+    const status = await $.command.run({ command: 'fil', args: 'status', ...TYPED })
+    expect(status.text).toContain('fil activé')
+  })
+
+  test('store.set fails on /fil off: fil turns off, says so, and clears its tasks', async ($, on) => {
+    mock.clock(on, { now: 5_000_000 })
+    const calls = failingEngine(on, { set: true })
+
+    await $.turn.start({ text: 'Tâche en cours', turnId: 't1' })
+    await $.tool.call({ tool: 'Read', file_path: '/a.ts' })
+    const off = await $.command.run({ command: 'fil', args: 'off', ...TYPED })
+    expect(off.text).toBe('fil désactivé. (choix non conservé pour les prochaines sessions)')
+    expect(calls.sets).toBe(0)
+
+    const ui = await $.ui.mount({ ...BAND, surface: 'terminal' })
+    expect(await ui.find({ type: 'Text', text: /Tâche en cours/ })).toBeUndefined()
+    expect(await ui.find({ type: 'Text', text: 'engine' })).toBeDefined()
+    const status = await $.command.run({ command: 'fil', args: 'status', ...TYPED })
+    expect(status.text).toContain('0 tâche(s)')
+  })
+
+  test('store.delete fails at session end: session.end completes', async ($, on) => {
+    const clock = mock.clock(on, { now: 6_000_000 })
+    const calls = failingEngine(on, { delete: true })
+
+    await $.session.start(START)
+    await $.turn.start({ text: 'Tâche partagée', turnId: 't1' })
+    // Two ticks at least: the even one publishes this session's tasks.
+    await clock.advance(3000)
+    expect(calls.sets).toBeGreaterThan(0)
+
+    const end = await $.session.end({ reason: 'other', sessionId: 'session-1', resume: { id: 'session-1' } })
+    expect(end).toMatchObject({ sessionId: 'session-1' })
+    expect(calls.deletes).toBeGreaterThan(0)
   })
 })
 

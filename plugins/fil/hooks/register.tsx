@@ -147,7 +147,8 @@ export const register: Register = on => {
       description: 'Active ou désactive les barres de progression (fil)',
       argumentHint: '[on|off|status|pane]',
     })
-    const stored = await $.store.get(STORE_ENABLED)
+    // An unreadable store keeps the default and still reaches next(e).
+    const stored = await $.store.get(STORE_ENABLED).catch(() => undefined)
     if (typeof stored === 'boolean') await update($, enabled, () => stored)
     ctx.sessionKey = await $.session.id()
     ctx.label = e.cwd.split(/[\\/]/).filter(Boolean).pop() ?? 'session'
@@ -161,7 +162,8 @@ export const register: Register = on => {
   })
 
   on('session.end', async ($, e, next) => {
-    if (ctx.hasPublished && ctx.sessionKey !== '') await $.store.delete(STORE_SESSION + ctx.sessionKey)
+    // Best-effort cleanup: a stale entry expires on its own in other sessions.
+    if (ctx.hasPublished && ctx.sessionKey !== '') await $.store.delete(STORE_SESSION + ctx.sessionKey).catch(() => undefined)
 
     return next(e)
   })
@@ -184,10 +186,12 @@ export const register: Register = on => {
     const current = await read($, enabled)
     const next = arg === 'on' ? true : arg === 'off' ? false : !current
     await update($, enabled, () => next)
-    await $.store.set(STORE_ENABLED, next)
+    // A refused write keeps the choice for this session only.
+    const isSaved = await $.store.set(STORE_ENABLED, next).then(() => true).catch(() => false)
     if (!next) await update($, tasks, () => [])
 
-    return { text: next ? 'fil activé : barres de progression affichées.' : 'fil désactivé.' }
+    const text = next ? 'fil activé : barres de progression affichées.' : 'fil désactivé.'
+    return { text: isSaved ? text : `${text} (choix non conservé pour les prochaines sessions)` }
   })
 
   on('agent.spawn', ($, e, next) => {
