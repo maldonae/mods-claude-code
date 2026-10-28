@@ -1,4 +1,5 @@
 import { expect, mock, test } from 'claude-code/testing'
+import type { Engine } from 'claude-code/testing'
 import type { On } from 'claude-code'
 
 import { buildPrompt, fillOf, fitsOneRow, parseSuggestions } from '../hooks/suggest'
@@ -38,10 +39,21 @@ const REPLY = JSON.stringify([
 
 const DONE = { usage: undefined, durationMs: 1000, isAborted: false, reason: 'answer' } as const
 
-// Le moteur sous le mod : modèle, prompt, bande des autres mods.
-const engine = (on: On, reply = REPLY) => {
+// Le moteur sous le mod : modèle, prompt, stockage du mod, bande des autres mods.
+// Chaque test part de son propre stockage : cap actif par défaut ici, sauf mention.
+const engine = (on: On, reply = REPLY, stored: Record<string, unknown> = { enabled: true }) => {
   const calls = { model: 0, fills: [] as { text: string; mode?: string }[], draft: '' }
+  const store: Record<string, unknown> = { ...stored }
+  const saved: unknown[] = []
   const clock = mock.clock(on, { now: 0 })
+  on('session.start', (_$, e) => ({ cwd: e.cwd }))
+  on('command.register', () => ({ value: undefined }) as never)
+  on('store.get', (_$, e) => ({ value: store[e.key] }) as never)
+  on('store.set', (_$, e) => {
+    store[e.key] = e.value
+    saved.push(e.value)
+    return { value: undefined } as never
+  })
   on('turn.start', (_$, e) => ({ text: e.text, turnId: e.turnId }) as never)
   on('turn.complete', () => ({ text: '' }))
   on('model.complete', () => {
@@ -57,7 +69,20 @@ const engine = (on: On, reply = REPLY) => {
     const { Text } = $.ui.resolve(e)
     return <Text>moteur</Text>
   })
-  return { calls, clock }
+  return { calls, clock, saved }
+}
+
+const start = ($: Engine) => $.session.start({ cwd: '/projet', surface: 'terminal', isInteractive: true })
+
+// Un tour complet : vrai si cap a appelé le modèle et dessiné ses boutons.
+const capShows = async ($: Engine, calls: { model: number }, clock: { advance: (ms: number) => Promise<unknown> }) => {
+  await $.turn.start({ text: 'ajoute un parseur', turnId: 't1' })
+  await $.turn.complete({ ...DONE, answer: 'Parseur ajouté.', turnId: 't1' })
+  await clock.advance(1)
+  const ui = await $.ui.mount({ ...BAND, surface: 'terminal' })
+  const buttons = await ui.findAll({ type: 'Button' })
+  await ui.unmount()
+  return calls.model > 0 && buttons.length > 0
 }
 
 test('parseSuggestions garde exactement 3 suggestions valides', () => {
@@ -98,6 +123,7 @@ test('après un tour, 3 boutons ; un clic remplit le champ sans envoyer', async 
     submits.push(e.text)
     return {} as never
   })
+  await start($)
 
   await $.turn.start({ text: 'ajoute un parseur', turnId: 't1' })
   await $.turn.complete({ ...DONE, answer: 'Parseur ajouté, 2 tests échouent.', turnId: 't1' })
@@ -134,6 +160,7 @@ test('une action risquée est marquée ⚠ sur son bouton, pas masquée', async 
     { label: 'Créer un ticket', prompt: 'Rédige un ticket GitHub.' },
   ])
   const { calls, clock } = engine(on, risky)
+  await start($)
 
   await $.turn.start({ text: 'range le dépôt', turnId: 't1' })
   await $.turn.complete({
@@ -163,6 +190,7 @@ test('injection indirecte : les suggestions dangereuses sont écartées, les aut
     { label: `Lancer les tests${hidden}`, prompt: `Lance pnpm test.${hidden}` },
   ])
   const { calls, clock } = engine(on, injected)
+  await start($)
 
   // La réponse vient d'un outil qui a lu une page piégée : rien de cela n'est une demande.
   await $.turn.start({ text: 'résume cette page', turnId: 't1' })
@@ -177,10 +205,12 @@ test('injection indirecte : les suggestions dangereuses sont écartées, les aut
   await ui.unmount()
 })
 
-test('/cap désactive : plus d’appel au modèle ni de bande', async ($, on) => {
-  const { calls, clock } = engine(on)
+test('/cap désactive : plus d’appel au modèle ni de bande, et enregistre false puis true', async ($, on) => {
+  const { calls, clock, saved } = engine(on)
+  await start($)
 
   expect(await $.command.run(RUN)).toMatchObject({ text: 'cap désactivé.' })
+  expect(saved).toEqual([false])
   await $.turn.start({ text: 'hello', turnId: 't1' })
   await $.turn.complete({ ...DONE, answer: 'Bonjour.', turnId: 't1' })
   await clock.advance(1)
@@ -190,10 +220,44 @@ test('/cap désactive : plus d’appel au modèle ni de bande', async ($, on) =>
   expect(calls.model).toBe(0)
 
   expect((await $.command.run(RUN))?.text).toContain('cap activé')
+  expect(saved).toEqual([false, true])
+})
+
+// Placés après des tests où cap était actif : rien n'est hérité d'eux.
+test('sans préférence enregistrée, cap démarre désactivé', async ($, on) => {
+  const { calls, clock, saved } = engine(on, REPLY, {})
+  await start($)
+  expect(await capShows($, calls, clock)).toBe(false)
+  expect(calls.model).toBe(0)
+  expect(saved).toEqual([])
+
+  expect((await $.command.run(RUN))?.text).toContain('cap activé')
+  expect(saved).toEqual([true])
+})
+
+test('préférence enabled: true : cap actif après session.start', async ($, on) => {
+  const { calls, clock } = engine(on, REPLY, { enabled: true })
+  await start($)
+  expect(await capShows($, calls, clock)).toBe(true)
+})
+
+test('préférence enabled: false : cap reste désactivé après session.start', async ($, on) => {
+  const { calls, clock } = engine(on, REPLY, { enabled: false })
+  await start($)
+  expect(await capShows($, calls, clock)).toBe(false)
+  expect(calls.model).toBe(0)
+})
+
+test('préférence invalide : ignorée, cap reste désactivé', async ($, on) => {
+  const { calls, clock } = engine(on, REPLY, { enabled: 'oui' })
+  await start($)
+  expect(await capShows($, calls, clock)).toBe(false)
+  expect(calls.model).toBe(0)
 })
 
 test('réponse illisible, tour interrompu ou subagent : rien d’affiché', async ($, on) => {
   const { calls, clock } = engine(on, 'désolé, pas de JSON')
+  await start($)
 
   await $.turn.start({ text: 'a', turnId: 't1' })
   await $.turn.complete({ ...DONE, answer: 'ok', turnId: 't1' })

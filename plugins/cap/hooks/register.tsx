@@ -4,12 +4,15 @@ import type { EngineInterface, Register } from 'claude-code'
 import type { Phase, Suggestion } from '../types'
 import { SYSTEM, buildPrompt, fillOf, fitsOneRow, labelOf, parseSuggestions } from './suggest'
 
-const isEnabled = atom({ plugin: 'cap', key: 'isEnabled' } as const, true)
+const isEnabled = atom({ plugin: 'cap', key: 'isEnabled' } as const, false)
 const isHidden = atom({ plugin: 'cap', key: 'isHidden' } as const, false)
 const phase = atom({ plugin: 'cap', key: 'phase' } as const, 'idle' as Phase)
 const suggestions = atom({ plugin: 'cap', key: 'suggestions' } as const, [] as Suggestion[], {
   shape: 'suggestions-2',
 })
+
+// Le choix de /cap survit aux sessions ; sans choix enregistré, cap reste éteint.
+const STORE_ENABLED = 'enabled'
 
 // Demande du dernier tour principal, et tour dont on attend les suggestions :
 // une réponse arrivée après un nouveau tour est jetée.
@@ -50,12 +53,15 @@ export const register: Register = on => {
       name: 'cap',
       description: 'Active ou désactive les 3 suggestions d’actions au-dessus du prompt',
     })
+    const stored = await $.store.get(STORE_ENABLED)
+    if (typeof stored === 'boolean') await update($, isEnabled, () => stored)
 
     return next(e)
   })
 
   on('command.run', { command: 'cap' }, async $ => {
     const now = await update($, isEnabled, v => !v)
+    await $.store.set(STORE_ENABLED, now)
     if (!now) await clearAll($, 'idle')
 
     return {
