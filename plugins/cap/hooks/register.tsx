@@ -49,12 +49,14 @@ async function suggest($: EngineInterface, turnId: string, answer: string): Prom
 
 export const register: Register = on => {
   on('session.start', async ($, e, next) => {
-    await $.command.register({
-      name: 'cap',
-      description: 'Active ou désactive les 3 suggestions d’actions au-dessus du prompt',
-    })
+    // Un enregistrement refusé ne retire que /cap : le choix enregistré est quand même relu.
+    await $.command
+      .register({
+        name: 'cap',
+        description: 'Active ou désactive les 3 suggestions d’actions au-dessus du prompt',
+      })
+      .catch(() => undefined)
     // Stockage illisible : cap reste éteint et la session continue jusqu'à next(e).
-    // Seule la lecture est protégée : un échec de command.register remonte tel quel.
     const stored = await $.store.get(STORE_ENABLED).catch(() => undefined)
     if (typeof stored === 'boolean') await update($, isEnabled, () => stored)
 

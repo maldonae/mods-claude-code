@@ -41,12 +41,12 @@ const DONE = { usage: undefined, durationMs: 1000, isAborted: false, reason: 'an
 
 // Le moteur sous le mod : modèle, prompt, stockage du mod, bande des autres mods.
 // Chaque test part de son propre stockage : cap actif par défaut ici, sauf mention.
-// `fail` simule un stockage illisible (get) ou en lecture seule (set).
+// `fail` simule un stockage illisible (get) ou en lecture seule (set), ou un enregistrement refusé (register).
 const engine = (
   on: On,
   reply = REPLY,
   stored: Record<string, unknown> = { enabled: true },
-  fail: { get?: boolean; set?: boolean } = {},
+  fail: { get?: boolean; set?: boolean; register?: boolean } = {},
 ) => {
   const calls = { model: 0, registered: 0, fills: [] as { text: string; mode?: string }[], draft: '' }
   const store: Record<string, unknown> = { ...stored }
@@ -55,6 +55,7 @@ const engine = (
   on('session.start', (_$, e) => ({ cwd: e.cwd }))
   on('command.register', () => {
     calls.registered += 1
+    if (fail.register) throw new Error('commande refusée')
     return { value: undefined } as never
   })
   on('store.get', (_$, e) => {
@@ -281,6 +282,14 @@ test('store.get échoue : session.start se termine, cap reste désactivé', asyn
   expect(calls.registered).toBe(1)
   expect(await capShows($, calls, clock)).toBe(false)
   expect(calls.model).toBe(0)
+})
+
+test('command.register échoue : le choix enabled: true est quand même relu', async ($, on) => {
+  // cap est désactivé par défaut : seules les suggestions prouvent que le choix a été relu.
+  const { calls, clock } = engine(on, REPLY, { enabled: true }, { register: true })
+  expect(await start($)).toMatchObject({ cwd: '/projet' })
+  expect(calls.registered).toBe(1)
+  expect(await capShows($, calls, clock)).toBe(true)
 })
 
 test('store.set échoue : /cap bascule quand même et le signale', async ($, on) => {
