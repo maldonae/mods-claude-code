@@ -43,8 +43,8 @@ const ctx = {
   /** The saved /fil choice could not be read at session start. */
   isChoiceUnread: false,
   stopTick: undefined as (() => void) | undefined,
-  /** A tick is running: the next one waits its turn. */
-  isTicking: false,
+  /** A sharing pass is running: the next one waits its turn. */
+  isSharing: false,
 }
 /** Events seen since load, for `/fil status`. */
 const seen = { submit: 0, turnStart: 0, tool: 0, complete: 0, render: 0, pane: 0, tick: 0 }
@@ -98,7 +98,19 @@ async function tick($: EngineInterface): Promise<void> {
 
   ctx.ticks += 1
   if (ctx.sessionKey === '' || ctx.ticks % 2 !== 0) return
-  // Cross-session sharing through $.store, best effort: each session writes its own key.
+  // One sharing pass at a time: a slow or hung store must not stack passes,
+  // and never holds the local part above, which runs on every tick.
+  if (ctx.isSharing) return
+  ctx.isSharing = true
+  try {
+    await share($, now, kept)
+  } finally {
+    ctx.isSharing = false
+  }
+}
+
+/** Cross-session sharing through $.store, best effort: each session writes its own key. */
+async function share($: EngineInterface, now: number, kept: readonly FilTask[]): Promise<void> {
   // A failed write is retried on a later tick.
   if (kept.length > 0) {
     const entry = { updatedAt: now, label: ctx.label, tasks: kept }
@@ -115,7 +127,10 @@ async function tick($: EngineInterface): Promise<void> {
   if (JSON.stringify(before) !== JSON.stringify(shared)) await update($, remote, () => shared)
 }
 
-/** Other sessions' tasks from the store, or undefined when it cannot be read this tick. */
+/**
+ * Other sessions' tasks from the store, or undefined when its keys cannot be read this tick.
+ * An unreadable entry is skipped on its own: it never hides the readable ones.
+ */
 async function readOthers($: EngineInterface, now: number): Promise<FilRemote[] | undefined> {
   const keys = await $.store.keys().catch(() => undefined)
   if (keys === undefined) return undefined
@@ -126,7 +141,7 @@ async function readOthers($: EngineInterface, now: number): Promise<FilRemote[] 
       value => ({ entry: value as { updatedAt?: number; label?: string; tasks?: FilTask[] } | undefined }),
       () => undefined,
     )
-    if (got === undefined) return undefined
+    if (got === undefined) continue
     const { entry } = got
     if (entry?.updatedAt === undefined || now - entry.updatedAt > REMOTE_STALE_MS) {
       if (entry?.updatedAt !== undefined && now - entry.updatedAt > 10 * REMOTE_STALE_MS) await $.store.delete(key).catch(() => undefined)
@@ -192,17 +207,12 @@ export const register: Register = on => {
     ctx.ticks = 0
     ctx.hasPublished = false
     ctx.lastShared = 0
+    // A pass hung in the previous session must not block this one's sharing.
+    ctx.isSharing = false
     ctx.sessionKey = await $.session.id()
     ctx.label = e.cwd.split(/[\\/]/).filter(Boolean).pop() ?? 'session'
     const timer = $.clock.every(1000, () => {
-      // One pass at a time: a slow store must not let two ticks overlap.
-      if (ctx.isTicking) return
-      ctx.isTicking = true
-      void tick($)
-        .catch(() => undefined)
-        .finally(() => {
-          ctx.isTicking = false
-        })
+      void tick($).catch(() => undefined)
     })
     ctx.stopTick = () => timer.cancel()
     // Opened unasked, the pane seats only where the terminal is wide enough,

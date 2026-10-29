@@ -146,10 +146,11 @@ describe('band', () => {
   })
 })
 
-// The engine beneath fil, with a store that fails on demand (`fail` can change mid-test).
-type Fail = { get?: boolean; set?: boolean; delete?: boolean; keys?: boolean }
+// The engine beneath fil, with a store that fails on demand (`fail` can change mid-test):
+// `hang` leaves every store.set pending forever, `badKeys` makes store.get throw for those keys only.
+type Fail = { get?: boolean; set?: boolean; delete?: boolean; keys?: boolean; hang?: boolean; badKeys?: string[] }
 const failingEngine = (on: On, fail: Fail, entries: Record<string, unknown> = {}) => {
-  const calls = { registered: 0, opens: 0, setTries: 0, sets: 0, deletes: 0 }
+  const calls = { registered: 0, opens: 0, setTries: 0, sets: 0, deletes: 0, statuses: [] as (string | undefined)[] }
   const store: Record<string, unknown> = { ...entries }
   on('session.start', (_$, e) => ({ cwd: e.cwd }))
   on('session.end', (_$, e) => ({ sessionId: e.sessionId }))
@@ -158,17 +159,21 @@ const failingEngine = (on: On, fail: Fail, entries: Record<string, unknown> = {}
     calls.opens += 1
     return { value: { isPlaced: true } } as never
   })
-  on('ui.status', () => ({ value: undefined }) as never)
+  on('ui.status', (_$, e) => {
+    calls.statuses.push(e.text)
+    return { value: undefined } as never
+  })
   on('command.register', () => {
     calls.registered += 1
     return { value: undefined } as never
   })
   on('store.get', (_$, e) => {
-    if (fail.get) throw new Error('unreadable store')
+    if (fail.get || fail.badKeys?.includes(e.key)) throw new Error('unreadable store')
     return { value: store[e.key] } as never
   })
-  on('store.set', (_$, e) => {
+  on('store.set', async (_$, e) => {
     calls.setTries += 1
+    if (fail.hang) await new Promise(() => undefined)
     if (fail.set) throw new Error('read-only store')
     calls.sets += 1
     store[e.key] = e.value
@@ -289,6 +294,59 @@ describe('storage errors', () => {
     ui = await $.ui.mount({ ...BAND, surface: 'terminal' })
     expect(await ui.find({ type: 'Text', text: /⇄ autre/ })).toBeUndefined()
     expect(await ui.find({ type: 'Text', text: 'engine' })).toBeDefined()
+  })
+
+  test('a hung store never freezes the status line nor the pruning of done tasks', async ($, on) => {
+    const clock = mock.clock(on, { now: 8_000_000 })
+    on('turn.complete', (_$, e) => ({ text: e.answer }))
+    const fail: Fail = { hang: true }
+    const calls = failingEngine(on, fail)
+
+    await $.session.start(START)
+    await $.turn.start({ text: 'Tâche bloquée', turnId: 't1' })
+    // A tool call makes the running task visible on the status line.
+    await $.tool.call({ tool: 'Read', file_path: '/a.ts' })
+    // Tick 2 starts sharing and its store.set never settles.
+    await clock.advance(2000)
+    expect(calls.setTries).toBe(1)
+    expect(calls.statuses.at(-1)).toMatch(/^▶ .*Read a\.ts/)
+
+    await $.turn.complete({ answer: 'ok', durationMs: 2000, isAborted: false, turnId: 't1', reason: 'answer' })
+    // Past KEEP_DONE_MS, the local part still prunes the done task and clears the status line.
+    await clock.advance(10_000)
+    expect(calls.statuses.at(-1)).toBeUndefined()
+    const status = await $.command.run({ command: 'fil', args: 'status', ...TYPED })
+    expect(status.text).toContain('0 tâche(s)')
+    // The hung pass is still the only one: sharing never stacked.
+    expect(calls.setTries).toBe(1)
+
+    // A new session shares again, despite the lock the hung pass left behind.
+    fail.hang = false
+    await $.session.start(START)
+    await $.turn.start({ text: 'Tâche suivante', turnId: 't2' })
+    await clock.advance(2000)
+    expect(calls.setTries).toBe(2)
+    expect(calls.sets).toBe(1)
+  })
+
+  test('an unreadable remote entry never hides the readable sessions', async ($, on) => {
+    const clock = mock.clock(on, { now: 9_000_000 })
+    const fresh = (label: string, title: string) => ({
+      updatedAt: 9_000_000_000,
+      label,
+      tasks: [newTask({ id: label, kind: 'turn', agentId: null, title, startedAt: 9_000_000 })],
+    })
+    failingEngine(on, { badKeys: ['s:cassee'] }, { 's:cassee': fresh('cassée', 'Illisible'), 's:saine': fresh('saine', 'Lisible') })
+
+    await $.session.start(START)
+    await clock.advance(2000)
+    const ui = await $.ui.mount({ ...BAND, surface: 'terminal' })
+    expect(await ui.find({ type: 'Text', text: /⇄ saine · Lisible/ })).toBeDefined()
+    expect(await ui.find({ type: 'Text', text: /⇄ cassée/ })).toBeUndefined()
+    // Still there long after: the bad entry is skipped, not a reason to drop the others.
+    await clock.advance(20_000)
+    const later = await $.ui.mount({ ...BAND, surface: 'terminal' })
+    expect(await later.find({ type: 'Text', text: /⇄ saine · Lisible/ })).toBeDefined()
   })
 })
 
