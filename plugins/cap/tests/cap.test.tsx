@@ -285,7 +285,7 @@ test('store.get échoue : session.start se termine, cap reste désactivé', asyn
 })
 
 test('command.register échoue : le choix enabled: true est quand même relu', async ($, on) => {
-  // cap est désactivé par défaut : seules les suggestions prouvent que le choix a été relu.
+  // L’atome isEnabled vaut false par défaut : seules les suggestions prouvent que le choix a été relu.
   const { calls, clock } = engine(on, REPLY, { enabled: true }, { register: true })
   expect(await start($)).toMatchObject({ cwd: '/projet' })
   expect(calls.registered).toBe(1)
