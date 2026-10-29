@@ -372,7 +372,7 @@ describe('storage errors', () => {
 })
 
 describe('command.register errors', () => {
-  test('command.register fails: fil still restores its choice, opens the pane and reaches next(e)', async ($, on) => {
+  test('command.register fails: the rest of the setup still runs and the pane opens', async ($, on) => {
     mock.clock(on, { now: 7_000_000 })
     const calls = failingEngine(on, { register: true }, { enabled: true })
 
@@ -380,6 +380,17 @@ describe('command.register errors', () => {
     expect(calls.registered).toBe(1)
     expect(calls.opens).toBe(1)
     expect(calls.nextReached).toBe(true)
+  })
+
+  // enabled: false differs from the default, so this proves the saved choice is read back.
+  test('command.register fails: a saved enabled: false is still read back', async ($, on) => {
+    mock.clock(on, { now: 7_100_000 })
+    const calls = failingEngine(on, { register: true }, { enabled: false })
+
+    expect(await $.session.start(START)).toMatchObject({ cwd: '/projets/fil' })
+    expect(calls.opens).toBe(0)
+    const status = await $.command.run({ command: 'fil', args: 'status', ...TYPED })
+    expect(status.text).toContain('fil désactivé ·')
   })
 })
 
