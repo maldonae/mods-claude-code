@@ -111,7 +111,7 @@ export const register: Register = on => {
       description: 'Passer le relais : active/désactive, seuil N, maintenant, statut',
       argumentHint: '[seuil N | maintenant | statut]',
     })
-    const stored = await $.store.get('threshold')
+    const stored = await $.store.get('threshold').catch(() => undefined)
     const limit = typeof stored === 'number' ? parseThreshold(String(stored)) : undefined
     if (limit !== undefined) await update($, threshold, () => limit)
     try {
@@ -136,8 +136,13 @@ export const register: Register = on => {
         const value = cmd.value
         await update($, threshold, () => value)
         await update($, isSnoozed, () => false)
-        await $.store.set('threshold', value)
-        return { text: `Seuil de relais : ${value} % (enregistré).` }
+        const saved = await $.store
+          .set('threshold', value)
+          .then(() => true)
+          .catch(() => false)
+        return {
+          text: `Seuil de relais : ${value} % (${saved ? 'enregistré' : 'non conservé pour les prochaines sessions'}).`,
+        }
       }
       case 'now': {
         await update($, isEnabled, () => true)
