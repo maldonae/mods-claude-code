@@ -74,7 +74,7 @@ export const register: Register = on => {
       name: 'pen',
       description: 'Active ou désactive le bouton « Améliorer le prompt »',
     })
-    const stored = await $.store.get(STORE_ENABLED)
+    const stored = await $.store.get(STORE_ENABLED).catch(() => undefined)
     if (typeof stored === 'boolean') await update($, isEnabled, () => stored)
 
     return next(e)
@@ -82,9 +82,10 @@ export const register: Register = on => {
 
   on('command.run', { command: 'pen' }, async $ => {
     const now = await update($, isEnabled, v => !v)
-    await $.store.set(STORE_ENABLED, now)
+    const isSaved = await $.store.set(STORE_ENABLED, now).then(() => true).catch(() => false)
 
-    return { text: now ? 'pen activé : bouton « Améliorer le prompt » affiché.' : 'pen désactivé.' }
+    const text = now ? 'pen activé : bouton « Améliorer le prompt » affiché.' : 'pen désactivé.'
+    return { text: isSaved ? text : `${text} (choix non conservé pour les prochaines sessions)` }
   })
 
   on('ui.render', { component: 'AbovePrompt' }, async ($, e, next) => {
