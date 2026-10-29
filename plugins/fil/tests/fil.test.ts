@@ -147,12 +147,32 @@ describe('band', () => {
 })
 
 // The engine beneath fil, with a store that fails on demand (`fail` can change mid-test):
-// `hang` leaves every store.set pending forever, `badKeys` makes store.get throw for those keys only.
-type Fail = { get?: boolean; set?: boolean; delete?: boolean; keys?: boolean; hang?: boolean; badKeys?: string[] }
+// `hang` leaves every store.set pending forever, `badKeys` makes store.get throw for those keys only,
+// `register` makes command.register throw.
+type Fail = {
+  get?: boolean
+  set?: boolean
+  delete?: boolean
+  keys?: boolean
+  hang?: boolean
+  badKeys?: string[]
+  register?: boolean
+}
 const failingEngine = (on: On, fail: Fail, entries: Record<string, unknown> = {}) => {
-  const calls = { registered: 0, opens: 0, setTries: 0, sets: 0, deletes: 0, statuses: [] as (string | undefined)[] }
+  const calls = {
+    registered: 0,
+    opens: 0,
+    setTries: 0,
+    sets: 0,
+    deletes: 0,
+    statuses: [] as (string | undefined)[],
+    nextReached: false,
+  }
   const store: Record<string, unknown> = { ...entries }
-  on('session.start', (_$, e) => ({ cwd: e.cwd }))
+  on('session.start', (_$, e) => {
+    calls.nextReached = true
+    return { cwd: e.cwd }
+  })
   on('session.end', (_$, e) => ({ sessionId: e.sessionId }))
   on('session.id', () => ({ value: 'session-1' }) as never)
   on('ui.open', () => {
@@ -165,6 +185,7 @@ const failingEngine = (on: On, fail: Fail, entries: Record<string, unknown> = {}
   })
   on('command.register', () => {
     calls.registered += 1
+    if (fail.register) throw new Error('command refused')
     return { value: undefined } as never
   })
   on('store.get', (_$, e) => {
@@ -347,6 +368,18 @@ describe('storage errors', () => {
     await clock.advance(20_000)
     const later = await $.ui.mount({ ...BAND, surface: 'terminal' })
     expect(await later.find({ type: 'Text', text: /⇄ saine · Lisible/ })).toBeDefined()
+  })
+})
+
+describe('command.register errors', () => {
+  test('command.register fails: fil still restores its choice, opens the pane and reaches next(e)', async ($, on) => {
+    mock.clock(on, { now: 7_000_000 })
+    const calls = failingEngine(on, { register: true }, { enabled: true })
+
+    expect(await $.session.start(START)).toMatchObject({ cwd: '/projets/fil' })
+    expect(calls.registered).toBe(1)
+    expect(calls.opens).toBe(1)
+    expect(calls.nextReached).toBe(true)
   })
 })
 
