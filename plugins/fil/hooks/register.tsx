@@ -31,7 +31,21 @@ const PANE = 'fil'
 type Pending = { prompt: string; description: string }
 
 // Module state: a hot reload starts it over; what the bars draw lives in $.state.
-const ctx = { sessionKey: '', label: '', ticks: 0, hasPublished: false, lastChime: 0, lastStatus: '' }
+const ctx = {
+  sessionKey: '',
+  label: '',
+  ticks: 0,
+  hasPublished: false,
+  lastChime: 0,
+  lastStatus: '',
+  /** Last tick that read other sessions from the store. */
+  lastShared: 0,
+  /** The saved /fil choice could not be read at session start. */
+  isChoiceUnread: false,
+  stopTick: undefined as (() => void) | undefined,
+  /** A sharing pass is running: the next one waits its turn. */
+  isSharing: false,
+}
 /** Events seen since load, for `/fil status`. */
 const seen = { submit: 0, turnStart: 0, tool: 0, complete: 0, render: 0, pane: 0, tick: 0 }
 const pending: Pending[] = []
@@ -84,26 +98,58 @@ async function tick($: EngineInterface): Promise<void> {
 
   ctx.ticks += 1
   if (ctx.sessionKey === '' || ctx.ticks % 2 !== 0) return
-  // Cross-session sharing through $.store, best effort: each session writes its own key.
-  if (kept.length > 0) {
-    await $.store.set(STORE_SESSION + ctx.sessionKey, { updatedAt: now, label: ctx.label, tasks: kept })
-    ctx.hasPublished = true
-  } else if (ctx.hasPublished) {
-    await $.store.delete(STORE_SESSION + ctx.sessionKey)
-    ctx.hasPublished = false
+  // One sharing pass at a time: a slow or hung store must not stack passes,
+  // and never holds the local part above, which runs on every tick.
+  if (ctx.isSharing) return
+  ctx.isSharing = true
+  try {
+    await share($, now, kept)
+  } finally {
+    ctx.isSharing = false
   }
+}
+
+/** Cross-session sharing through $.store, best effort: each session writes its own key. */
+async function share($: EngineInterface, now: number, kept: readonly FilTask[]): Promise<void> {
+  // A failed write is retried on a later tick.
+  if (kept.length > 0) {
+    const entry = { updatedAt: now, label: ctx.label, tasks: kept }
+    if (await $.store.set(STORE_SESSION + ctx.sessionKey, entry).then(() => true, () => false)) ctx.hasPublished = true
+  } else if (ctx.hasPublished) {
+    if (await $.store.delete(STORE_SESSION + ctx.sessionKey).then(() => true, () => false)) ctx.hasPublished = false
+  }
+  const others = await readOthers($, now)
+  if (others !== undefined) ctx.lastShared = now
+  // Unreadable store: skip this tick, but never keep other sessions' bars past their staleness.
+  const shared = others ?? (now - ctx.lastShared > REMOTE_STALE_MS ? [] : undefined)
+  if (shared === undefined) return
+  const before = await read($, remote)
+  if (JSON.stringify(before) !== JSON.stringify(shared)) await update($, remote, () => shared)
+}
+
+/**
+ * Other sessions' tasks from the store, or undefined when its keys cannot be read this tick.
+ * An unreadable entry is skipped on its own: it never hides the readable ones.
+ */
+async function readOthers($: EngineInterface, now: number): Promise<FilRemote[] | undefined> {
+  const keys = await $.store.keys().catch(() => undefined)
+  if (keys === undefined) return undefined
   const others: FilRemote[] = []
-  for (const key of await $.store.keys()) {
+  for (const key of keys) {
     if (!key.startsWith(STORE_SESSION) || key === STORE_SESSION + ctx.sessionKey) continue
-    const entry = (await $.store.get(key)) as { updatedAt?: number; label?: string; tasks?: FilTask[] } | undefined
+    const got = await $.store.get(key).then(
+      value => ({ entry: value as { updatedAt?: number; label?: string; tasks?: FilTask[] } | undefined }),
+      () => undefined,
+    )
+    if (got === undefined) continue
+    const { entry } = got
     if (entry?.updatedAt === undefined || now - entry.updatedAt > REMOTE_STALE_MS) {
-      if (entry?.updatedAt !== undefined && now - entry.updatedAt > 10 * REMOTE_STALE_MS) await $.store.delete(key)
+      if (entry?.updatedAt !== undefined && now - entry.updatedAt > 10 * REMOTE_STALE_MS) await $.store.delete(key).catch(() => undefined)
       continue
     }
     others.push({ session: key.slice(STORE_SESSION.length), label: entry.label ?? '?', tasks: entry.tasks ?? [] })
   }
-  const before = await read($, remote)
-  if (JSON.stringify(before) !== JSON.stringify(others)) await update($, remote, () => others)
+  return others
 }
 
 /** Every bar to draw: this session's visible tasks, then other sessions'. */
@@ -142,26 +188,50 @@ function drawBars($: EngineInterface, e: RenderInput, shown: readonly FilTask[],
 
 export const register: Register = on => {
   on('session.start', async ($, e, next) => {
+    // The previous session's timer stops before anything is awaited.
+    ctx.stopTick?.()
+    ctx.stopTick = undefined
     await $.command.register({
       name: 'fil',
       description: 'Active ou désactive les barres de progression (fil)',
       argumentHint: '[on|off|status|pane]',
     })
-    const stored = await $.store.get(STORE_ENABLED)
-    if (typeof stored === 'boolean') await update($, enabled, () => stored)
+    // An unreadable store leaves the current state as is and still reaches next(e).
+    const got = await $.store.get(STORE_ENABLED).then(value => ({ value }), () => undefined)
+    ctx.isChoiceUnread = got === undefined
+    if (typeof got?.value === 'boolean') {
+      const stored = got.value
+      await update($, enabled, () => stored)
+    }
+    // A new session starts its sharing over.
+    ctx.ticks = 0
+    ctx.hasPublished = false
+    ctx.lastShared = 0
+    // A pass hung in the previous session must not block this one's sharing.
+    ctx.isSharing = false
     ctx.sessionKey = await $.session.id()
     ctx.label = e.cwd.split(/[\\/]/).filter(Boolean).pop() ?? 'session'
-    $.clock.every(1000, () => {
+    const timer = $.clock.every(1000, () => {
       void tick($).catch(() => undefined)
     })
-    // Opened unasked, the pane seats only where the terminal is wide enough.
-    if (await read($, enabled)) void $.ui.open({ id: PANE, title: 'fil' })
+    ctx.stopTick = () => timer.cancel()
+    // Opened unasked, the pane seats only where the terminal is wide enough,
+    // and never when the saved choice could not be read.
+    if (!ctx.isChoiceUnread && (await read($, enabled))) void $.ui.open({ id: PANE, title: 'fil' }).catch(() => undefined)
 
     return next(e)
   })
 
   on('session.end', async ($, e, next) => {
-    if (ctx.hasPublished && ctx.sessionKey !== '') await $.store.delete(STORE_SESSION + ctx.sessionKey)
+    // Sharing stops first: no tick may publish this session while its entry is deleted.
+    const key = ctx.sessionKey
+    const wasPublished = ctx.hasPublished
+    ctx.stopTick?.()
+    ctx.stopTick = undefined
+    ctx.hasPublished = false
+    ctx.sessionKey = ''
+    // Best-effort cleanup: a stale entry expires on its own in other sessions.
+    if (wasPublished && key !== '') await $.store.delete(STORE_SESSION + key).catch(() => undefined)
 
     return next(e)
   })
@@ -172,7 +242,8 @@ export const register: Register = on => {
       const list = await read($, tasks)
       const state = (await read($, enabled)) ? 'activé' : 'désactivé'
       const counts = Object.entries(seen).map(([k, v]) => `${k}=${v}`).join(' ')
-      return { text: `fil ${state} · ${list.length} tâche(s) · ${counts}` }
+      const unread = ctx.isChoiceUnread ? ' (choix enregistré illisible)' : ''
+      return { text: `fil ${state}${unread} · ${list.length} tâche(s) · ${counts}` }
     }
     if (arg === 'pane') {
       const opened = await $.ui.open({ id: PANE, title: 'fil' })
@@ -184,10 +255,14 @@ export const register: Register = on => {
     const current = await read($, enabled)
     const next = arg === 'on' ? true : arg === 'off' ? false : !current
     await update($, enabled, () => next)
-    await $.store.set(STORE_ENABLED, next)
+    // A refused write keeps the choice for this session only.
+    const isSaved = await $.store.set(STORE_ENABLED, next).then(() => true).catch(() => false)
+    // Once written, the saved choice is known again.
+    if (isSaved) ctx.isChoiceUnread = false
     if (!next) await update($, tasks, () => [])
 
-    return { text: next ? 'fil activé : barres de progression affichées.' : 'fil désactivé.' }
+    const text = next ? 'fil activé : barres de progression affichées.' : 'fil désactivé.'
+    return { text: isSaved ? text : `${text} (choix non conservé pour les prochaines sessions)` }
   })
 
   on('agent.spawn', ($, e, next) => {
