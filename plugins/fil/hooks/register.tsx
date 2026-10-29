@@ -191,11 +191,14 @@ export const register: Register = on => {
     // The previous session's timer stops before anything is awaited.
     ctx.stopTick?.()
     ctx.stopTick = undefined
-    await $.command.register({
-      name: 'fil',
-      description: 'Active ou désactive les barres de progression (fil)',
-      argumentHint: '[on|off|status|pane]',
-    })
+    // A refused registration only drops /fil: the rest of the setup still runs.
+    await $.command
+      .register({
+        name: 'fil',
+        description: 'Active ou désactive les barres de progression (fil)',
+        argumentHint: '[on|off|status|pane]',
+      })
+      .catch(() => undefined)
     // An unreadable store leaves the current state as is and still reaches next(e).
     const got = await $.store.get(STORE_ENABLED).then(value => ({ value }), () => undefined)
     ctx.isChoiceUnread = got === undefined
