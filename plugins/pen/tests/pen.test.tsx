@@ -1,4 +1,5 @@
-import { expect, mock, test } from 'claude-code/testing'
+import { expect, test } from 'claude-code/testing'
+import type { Engine } from 'claude-code/testing'
 import type { On } from 'claude-code'
 
 import { MAX_DRAFT, REMINDER, SYSTEM, buildPrompt, checkDraft, cleanReply, hasStructure } from '../hooks/rewrite'
@@ -32,15 +33,41 @@ const USAGE = {
 
 const BETTER = 'Objectif : ajouter un bouton de déconnexion.\n\nCritères de réussite : la session est fermée.'
 
-// Le moteur sous le mod : modèle, champ de saisie, toasts, bande des autres mods.
-const engine = (on: On, opts: { reply?: string; typedDuring?: string } = {}) => {
+// Le moteur sous le mod : modèle, champ de saisie, toasts, stockage, bande des autres mods.
+// `fail` simule un stockage illisible (get) ou en lecture seule (set).
+const engine = (
+  on: On,
+  opts: {
+    reply?: string
+    typedDuring?: string
+    stored?: Record<string, unknown>
+    fail?: { get?: boolean; set?: boolean }
+  } = {},
+) => {
   const calls = {
     draft: '',
     prompts: [] as string[],
     fills: [] as { text: string; mode?: string }[],
     toasts: [] as string[],
+    saved: [] as unknown[],
+    nextReached: false,
   }
-  mock.store(on)
+  const store: Record<string, unknown> = { ...opts.stored }
+  on('session.start', (_$, e) => {
+    calls.nextReached = true
+    return { cwd: e.cwd }
+  })
+  on('command.register', () => ({ value: undefined }) as never)
+  on('store.get', (_$, e) => {
+    if (opts.fail?.get) throw new Error('stockage illisible')
+    return { value: store[e.key] } as never
+  })
+  on('store.set', (_$, e) => {
+    if (opts.fail?.set) throw new Error('stockage en lecture seule')
+    store[e.key] = e.value
+    calls.saved.push(e.value)
+    return { value: undefined } as never
+  })
   on('model.complete', (_$, e) => {
     calls.prompts.push(e.prompt)
     if (opts.typedDuring !== undefined) calls.draft = opts.typedDuring
@@ -163,15 +190,62 @@ test('réponse vide du modèle : brouillon inchangé', async ($, on) => {
 })
 
 test('/pen masque puis réaffiche le bouton', async ($, on) => {
-  engine(on)
+  const calls = engine(on)
   expect(await $.command.run(RUN)).toMatchObject({ text: 'pen désactivé.' })
+  expect(calls.saved).toEqual([false])
   let ui = await $.ui.mount({ ...BAND, surface: 'terminal' })
   expect(await ui.findAll({ type: 'Button' })).toHaveLength(0)
   expect(await ui.find({ type: 'Text', text: 'moteur' })).toBeDefined()
   await ui.unmount()
 
   expect(await $.command.run(RUN)).toMatchObject({ text: 'pen activé : bouton « Améliorer le prompt » affiché.' })
+  expect(calls.saved).toEqual([false, true])
   ui = await $.ui.mount({ ...BAND, surface: 'terminal' })
   expect(await ui.findAll({ type: 'Button' })).toHaveLength(1)
   await ui.unmount()
+})
+
+const start = ($: Engine) => $.session.start({ cwd: '/projet', surface: 'terminal', isInteractive: true })
+
+const buttons = async ($: Engine) => {
+  const ui = await $.ui.mount({ ...BAND, surface: 'terminal' })
+  const found = await ui.findAll({ type: 'Button' })
+  await ui.unmount()
+  return found.length
+}
+
+test('choix enregistré false : le bouton est masqué dès le démarrage', async ($, on) => {
+  const calls = engine(on, { stored: { enabled: false } })
+  expect(await start($)).toMatchObject({ cwd: '/projet' })
+  expect(calls.nextReached).toBe(true)
+  expect(await buttons($)).toBe(0)
+})
+
+test('store.get échoue : session.start atteint next(e) et pen reste activé', async ($, on) => {
+  // Le stockage contient false, mais il est illisible : la valeur n'est jamais lue.
+  const calls = engine(on, { stored: { enabled: false }, fail: { get: true } })
+  expect(await start($)).toMatchObject({ cwd: '/projet' })
+  expect(calls.nextReached).toBe(true)
+  expect(await buttons($)).toBe(1)
+})
+
+test('store.set échoue : /pen bascule quand même et le signale', async ($, on) => {
+  const calls = engine(on, { fail: { set: true } })
+  await start($)
+  expect(await $.command.run(RUN)).toMatchObject({
+    text: 'pen désactivé. (choix non conservé pour les prochaines sessions)',
+  })
+  expect(calls.saved).toEqual([])
+  expect(await buttons($)).toBe(0)
+})
+
+test('store.set échoue pendant une réactivation : pen s’affiche et le signale', async ($, on) => {
+  const calls = engine(on, { stored: { enabled: false }, fail: { set: true } })
+  await start($)
+  expect(await buttons($)).toBe(0)
+  expect(await $.command.run(RUN)).toMatchObject({
+    text: 'pen activé : bouton « Améliorer le prompt » affiché. (choix non conservé pour les prochaines sessions)',
+  })
+  expect(calls.saved).toEqual([])
+  expect(await buttons($)).toBe(1)
 })
