@@ -190,14 +190,16 @@ test('réponse vide du modèle : brouillon inchangé', async ($, on) => {
 })
 
 test('/pen masque puis réaffiche le bouton', async ($, on) => {
-  engine(on)
+  const calls = engine(on)
   expect(await $.command.run(RUN)).toMatchObject({ text: 'pen désactivé.' })
+  expect(calls.saved).toEqual([false])
   let ui = await $.ui.mount({ ...BAND, surface: 'terminal' })
   expect(await ui.findAll({ type: 'Button' })).toHaveLength(0)
   expect(await ui.find({ type: 'Text', text: 'moteur' })).toBeDefined()
   await ui.unmount()
 
   expect(await $.command.run(RUN)).toMatchObject({ text: 'pen activé : bouton « Améliorer le prompt » affiché.' })
+  expect(calls.saved).toEqual([false, true])
   ui = await $.ui.mount({ ...BAND, surface: 'terminal' })
   expect(await ui.findAll({ type: 'Button' })).toHaveLength(1)
   await ui.unmount()
@@ -235,4 +237,15 @@ test('store.set échoue : /pen bascule quand même et le signale', async ($, on)
   })
   expect(calls.saved).toEqual([])
   expect(await buttons($)).toBe(0)
+})
+
+test('store.set échoue pendant une réactivation : pen s’affiche et le signale', async ($, on) => {
+  const calls = engine(on, { stored: { enabled: false }, fail: { set: true } })
+  await start($)
+  expect(await buttons($)).toBe(0)
+  expect(await $.command.run(RUN)).toMatchObject({
+    text: 'pen activé : bouton « Améliorer le prompt » affiché. (choix non conservé pour les prochaines sessions)',
+  })
+  expect(calls.saved).toEqual([])
+  expect(await buttons($)).toBe(1)
 })
