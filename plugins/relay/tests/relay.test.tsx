@@ -1,4 +1,5 @@
 import { expect, mock, test } from 'claude-code/testing'
+import type { Engine } from 'claude-code/testing'
 import type { On } from 'claude-code'
 
 import {
@@ -66,12 +67,44 @@ const rel = (path: string): string => {
   return at < 0 ? p : p.slice(at)
 }
 
-// Le moteur sous le mod : disque, fork, presse-papier, bande des autres mods.
-const engine = (on: On, opts: { reply?: string; taken?: string[] } = {}) => {
+// Le moteur sous le mod : disque, fork, presse-papier, stockage, bande des autres mods.
+// `fail` simule un stockage illisible (get) ou en lecture seule (set).
+const engine = (
+  on: On,
+  opts: {
+    reply?: string
+    taken?: string[]
+    stored?: Record<string, unknown>
+    fail?: { get?: boolean; set?: boolean }
+  } = {},
+) => {
   const disk = new Map<string, string>((opts.taken ?? []).map(p => [p, 'ANCIEN']))
-  const calls = { forks: 0, copies: [] as string[], prompts: [] as string[], logs: [] as string[], toasts: [] as string[] }
+  const calls = {
+    forks: 0,
+    copies: [] as string[],
+    prompts: [] as string[],
+    logs: [] as string[],
+    toasts: [] as string[],
+    saved: [] as unknown[],
+    nextReached: false,
+  }
+  const store: Record<string, unknown> = { ...opts.stored }
   mock.clock(on, { now: T0 })
-  mock.store(on)
+  on('session.start', (_$, e) => {
+    calls.nextReached = true
+    return { cwd: e.cwd }
+  })
+  on('command.register', () => ({ value: undefined }) as never)
+  on('store.get', (_$, e) => {
+    if (opts.fail?.get) throw new Error('stockage illisible')
+    return { value: store[e.key] } as never
+  })
+  on('store.set', (_$, e) => {
+    if (opts.fail?.set) throw new Error('stockage en lecture seule')
+    store[e.key] = e.value
+    calls.saved.push(e.value)
+    return { value: undefined } as never
+  })
   on('session.measure', async (_$, e) => ({ changed: e.changed }))
   on('fs.exists', (_$, e) => ({ value: disk.has(rel(e.path)) }) as never)
   on('fs.write', (_$, e) => {
@@ -248,4 +281,38 @@ test('/relay désactive puis réactive la bande', async ($, on) => {
   await ui.unmount()
   expect(await $.command.run(run(''))).toMatchObject({ text: 'relay activé.' })
   expect((await $.command.run(run('statut')))?.text).toContain('seuil 50 %')
+})
+
+const start = ($: Engine) => $.session.start({ cwd: '/projet', surface: 'terminal', isInteractive: true })
+
+test('seuil enregistré : relu au démarrage, session.start atteint next(e)', async ($, on) => {
+  const { calls } = engine(on, { stored: { threshold: 70 } })
+  expect(await start($)).toMatchObject({ cwd: '/projet' })
+  expect(calls.nextReached).toBe(true)
+  expect((await $.command.run(run('statut')))?.text).toContain('seuil 70 %')
+})
+
+test('store.get échoue : session.start atteint next(e) et le seuil reste à 50 %', async ($, on) => {
+  // Le stockage contient 70, mais il est illisible : la valeur n'est jamais lue.
+  const { calls } = engine(on, { stored: { threshold: 70 }, fail: { get: true } })
+  expect(await start($)).toMatchObject({ cwd: '/projet' })
+  expect(calls.nextReached).toBe(true)
+  expect((await $.command.run(run('statut')))?.text).toContain('seuil 50 %')
+})
+
+test('/relay seuil 80 : seuil enregistré', async ($, on) => {
+  const { calls } = engine(on)
+  await start($)
+  expect(await $.command.run(run('seuil 80'))).toMatchObject({ text: 'Seuil de relais : 80 % (enregistré).' })
+  expect(calls.saved).toEqual([80])
+})
+
+test('store.set échoue : le seuil 80 s’applique quand même et le message le signale', async ($, on) => {
+  const { calls } = engine(on, { fail: { set: true } })
+  await start($)
+  expect(await $.command.run(run('seuil 80'))).toMatchObject({
+    text: 'Seuil de relais : 80 % (non conservé pour les prochaines sessions).',
+  })
+  expect(calls.saved).toEqual([])
+  expect((await $.command.run(run('statut')))?.text).toContain('seuil 80 %')
 })
