@@ -212,7 +212,8 @@ export const register: Register = on => {
     ctx.lastShared = 0
     // A pass hung in the previous session must not block this one's sharing.
     ctx.isSharing = false
-    ctx.sessionKey = await $.session.id()
+    // Sans identifiant de session, fil reste local : la clé vide désactive le partage.
+    ctx.sessionKey = await $.session.id().catch(() => '')
     ctx.label = e.cwd.split(/[\\/]/).filter(Boolean).pop() ?? 'session'
     const timer = $.clock.every(1000, () => {
       void tick($).catch(() => undefined)
