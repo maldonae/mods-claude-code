@@ -148,7 +148,7 @@ describe('band', () => {
 
 // The engine beneath fil, with a store that fails on demand (`fail` can change mid-test):
 // `hang` leaves every store.set pending forever, `badKeys` makes store.get throw for those keys only,
-// `register` makes command.register throw.
+// `register` makes command.register throw, `sessionId` makes session.id throw.
 type Fail = {
   get?: boolean
   set?: boolean
@@ -157,6 +157,7 @@ type Fail = {
   hang?: boolean
   badKeys?: string[]
   register?: boolean
+  sessionId?: boolean
 }
 const failingEngine = (on: On, fail: Fail, entries: Record<string, unknown> = {}) => {
   const calls = {
@@ -174,7 +175,10 @@ const failingEngine = (on: On, fail: Fail, entries: Record<string, unknown> = {}
     return { cwd: e.cwd }
   })
   on('session.end', (_$, e) => ({ sessionId: e.sessionId }))
-  on('session.id', () => ({ value: 'session-1' }) as never)
+  on('session.id', () => {
+    if (fail.sessionId) throw new Error('no session id')
+    return { value: 'session-1' } as never
+  })
   on('ui.open', () => {
     calls.opens += 1
     return { value: { isPlaced: true } } as never
@@ -391,6 +395,22 @@ describe('command.register errors', () => {
     expect(calls.opens).toBe(0)
     const status = await $.command.run({ command: 'fil', args: 'status', ...TYPED })
     expect(status.text).toContain('fil désactivé ·')
+  })
+})
+
+describe('session.id errors', () => {
+  test('session.id fails: the tick and the pane still start, without sharing', async ($, on) => {
+    const clock = mock.clock(on, { now: 7_200_000 })
+    const calls = failingEngine(on, { sessionId: true }, { enabled: true })
+
+    expect(await $.session.start(START)).toMatchObject({ cwd: '/projets/fil' })
+    expect(calls.opens).toBe(1)
+    await $.turn.start({ text: 'Tâche locale', turnId: 't1' })
+    await $.tool.call({ tool: 'Read', file_path: '/a.ts' })
+    // Ticks 1 and 2 after the start: the status line shows the task, nothing is published.
+    await clock.advance(2000)
+    expect(calls.statuses.length).toBeGreaterThan(0)
+    expect(calls.sets).toBe(0)
   })
 })
 
