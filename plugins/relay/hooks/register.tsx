@@ -110,7 +110,7 @@ export const register: Register = on => {
       name: 'relay',
       description: 'Passer le relais : active/désactive, seuil N, maintenant, statut',
       argumentHint: '[seuil N | maintenant | statut]',
-    })
+    }).catch(() => undefined)
     const stored = await $.store.get('threshold').catch(() => undefined)
     const limit = typeof stored === 'number' ? parseThreshold(String(stored)) : undefined
     if (limit !== undefined) await update($, threshold, () => limit)
