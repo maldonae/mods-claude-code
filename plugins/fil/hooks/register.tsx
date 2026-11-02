@@ -85,6 +85,7 @@ async function chime($: EngineInterface): Promise<void> {
 }
 
 async function tick($: EngineInterface): Promise<void> {
+  const generation = ctx.generation
   seen.tick += 1
   const now = await $.clock.now()
   const list = await read($, tasks)
@@ -98,13 +99,14 @@ async function tick($: EngineInterface): Promise<void> {
     $.ui.status(line === '' ? undefined : line)
   }
 
+  // A tick begun before a session start or end never shares for the next session.
+  if (ctx.generation !== generation) return
   ctx.ticks += 1
   if (ctx.sessionKey === '' || ctx.ticks % 2 !== 0) return
   // One sharing pass at a time: a slow or hung store must not stack passes,
   // and never holds the local part above, which runs on every tick.
   if (ctx.isSharing) return
   ctx.isSharing = true
-  const generation = ctx.generation
   try {
     await share($, now, kept, generation)
   } finally {
@@ -123,8 +125,10 @@ async function share($: EngineInterface, now: number, kept: readonly FilTask[], 
     const entry = { updatedAt: now, label: ctx.label, tasks: kept }
     const isSaved = await $.store.set(key, entry).then(() => true, () => false)
     if (isStale()) {
-      // Written after its session ended: removed again, unless the new session uses the same key.
+      // Written after its session ended: removed again, unless the new session uses the same key,
+      // which then owns the entry and its cleanup.
       if (isSaved && key !== STORE_SESSION + ctx.sessionKey) await $.store.delete(key).catch(() => undefined)
+      else if (isSaved) ctx.hasPublished = true
       return
     }
     if (isSaved) ctx.hasPublished = true
@@ -209,6 +213,8 @@ export const register: Register = on => {
     ctx.stopTick?.()
     ctx.stopTick = undefined
     ctx.generation += 1
+    // Until session.id answers below, no pass may write or keep an entry under the previous key.
+    ctx.sessionKey = ''
     // A refused registration only drops /fil: the rest of the setup still runs.
     await $.command
       .register({
