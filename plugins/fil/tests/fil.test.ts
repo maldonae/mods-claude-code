@@ -409,8 +409,9 @@ describe('session.id errors', () => {
     await $.tool.call({ tool: 'Read', file_path: '/a.ts' })
     // Ticks 1 and 2 after the start: the status line shows the task, nothing is published.
     await clock.advance(2000)
-    expect(calls.statuses.length).toBeGreaterThan(0)
-    expect(calls.sets).toBe(0)
+    expect(calls.statuses.at(-1)).toMatch(/^▶ .*Read a\.ts/)
+    expect(calls.setTries).toBe(0)
+    expect(calls.deletes).toBe(0)
   })
 })
 
