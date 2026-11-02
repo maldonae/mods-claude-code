@@ -73,7 +73,7 @@ export const register: Register = on => {
     await $.command.register({
       name: 'pen',
       description: 'Active ou désactive le bouton « Améliorer le prompt »',
-    })
+    }).catch(() => undefined)
     const stored = await $.store.get(STORE_ENABLED).catch(() => undefined)
     if (typeof stored === 'boolean') await update($, isEnabled, () => stored)
 

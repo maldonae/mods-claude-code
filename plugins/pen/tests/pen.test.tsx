@@ -41,7 +41,7 @@ const engine = (
     reply?: string
     typedDuring?: string
     stored?: Record<string, unknown>
-    fail?: { get?: boolean; set?: boolean }
+    fail?: { register?: boolean; get?: boolean; set?: boolean }
   } = {},
 ) => {
   const calls = {
@@ -51,13 +51,18 @@ const engine = (
     toasts: [] as string[],
     saved: [] as unknown[],
     nextReached: false,
+    registered: 0,
   }
   const store: Record<string, unknown> = { ...opts.stored }
   on('session.start', (_$, e) => {
     calls.nextReached = true
     return { cwd: e.cwd }
   })
-  on('command.register', () => ({ value: undefined }) as never)
+  on('command.register', () => {
+    calls.registered += 1
+    if (opts.fail?.register) throw new Error('commande refusée')
+    return { value: undefined } as never
+  })
   on('store.get', (_$, e) => {
     if (opts.fail?.get) throw new Error('stockage illisible')
     return { value: store[e.key] } as never
@@ -227,6 +232,14 @@ test('store.get échoue : session.start atteint next(e) et pen reste activé', a
   expect(await start($)).toMatchObject({ cwd: '/projet' })
   expect(calls.nextReached).toBe(true)
   expect(await buttons($)).toBe(1)
+})
+
+test('command.register échoue : le choix enabled: false est quand même relu', async ($, on) => {
+  // isEnabled vaut true par défaut : seul un bouton masqué prouve que le choix a été relu.
+  const calls = engine(on, { stored: { enabled: false }, fail: { register: true } })
+  expect(await start($)).toMatchObject({ cwd: '/projet' })
+  expect(calls.registered).toBe(1)
+  expect(await buttons($)).toBe(0)
 })
 
 test('store.set échoue : /pen bascule quand même et le signale', async ($, on) => {
