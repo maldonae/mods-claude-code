@@ -75,7 +75,7 @@ const engine = (
     reply?: string
     taken?: string[]
     stored?: Record<string, unknown>
-    fail?: { get?: boolean; set?: boolean }
+    fail?: { register?: boolean; get?: boolean; set?: boolean }
   } = {},
 ) => {
   const disk = new Map<string, string>((opts.taken ?? []).map(p => [p, 'ANCIEN']))
@@ -87,6 +87,7 @@ const engine = (
     toasts: [] as string[],
     saved: [] as unknown[],
     nextReached: false,
+    registered: 0,
   }
   const store: Record<string, unknown> = { ...opts.stored }
   mock.clock(on, { now: T0 })
@@ -94,7 +95,11 @@ const engine = (
     calls.nextReached = true
     return { cwd: e.cwd }
   })
-  on('command.register', () => ({ value: undefined }) as never)
+  on('command.register', () => {
+    calls.registered += 1
+    if (opts.fail?.register) throw new Error('commande refusée')
+    return { value: undefined } as never
+  })
   on('store.get', (_$, e) => {
     if (opts.fail?.get) throw new Error('stockage illisible')
     return { value: store[e.key] } as never
@@ -289,6 +294,14 @@ test('seuil enregistré : relu au démarrage, session.start atteint next(e)', as
   const { calls } = engine(on, { stored: { threshold: 70 } })
   expect(await start($)).toMatchObject({ cwd: '/projet' })
   expect(calls.nextReached).toBe(true)
+  expect((await $.command.run(run('statut')))?.text).toContain('seuil 70 %')
+})
+
+test('command.register échoue : le seuil enregistré 70 est quand même relu', async ($, on) => {
+  // Le seuil vaut 50 par défaut : seul « seuil 70 % » prouve que le choix a été relu.
+  const { calls } = engine(on, { stored: { threshold: 70 }, fail: { register: true } })
+  expect(await start($)).toMatchObject({ cwd: '/projet' })
+  expect(calls.registered).toBe(1)
   expect((await $.command.run(run('statut')))?.text).toContain('seuil 70 %')
 })
 
