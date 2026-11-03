@@ -1,7 +1,7 @@
 import type { On, RenderElement } from 'claude-code'
 import { describe, expect, mock, test } from 'claude-code/testing'
 
-import { applyPlan, bar, estimate, formatElapsed, newTask, statusText, stepOf } from '../hooks/progress'
+import { applyPlan, bar, estimate, formatElapsed, isRemoteFresh, newTask, statusText, stepOf } from '../hooks/progress'
 
 const BAND = {
   plugin: 'fil',
@@ -31,6 +31,14 @@ describe('progress', () => {
   test('draws a bar of the given width', () => {
     expect(bar(50, 10)).toBe('█████░░░░░')
     expect(bar(100, 4)).toBe('████')
+  })
+
+  // The age is now - updatedAt: up to REMOTE_SKEW_MS ahead, up to REMOTE_STALE_MS old.
+  test('isRemoteFresh bounds the age both ways', () => {
+    expect(isRemoteFresh(2000, 0)).toBe(true)
+    expect(isRemoteFresh(-10000, 0)).toBe(true)
+    expect(isRemoteFresh(2001, 0)).toBe(false)
+    expect(isRemoteFresh(-10001, 0)).toBe(false)
   })
 
   test('estimates from the plan, never 100 while running', () => {
@@ -150,7 +158,8 @@ describe('band', () => {
 // `hang` leaves every store.set pending forever, `badKeys` makes store.get throw for those keys only,
 // `register` makes command.register throw, `sessionId` makes session.id throw,
 // `defer` holds each store.set until the test calls the matching `calls.release` entry,
-// `deferGet` holds each store.get('enabled') until the test calls the matching `calls.releaseGet` entry.
+// `deferGet` holds each store.get('enabled') until the test calls the matching `calls.releaseGet` entry,
+// `deferKeys` holds each store.keys until the test calls the matching `calls.releaseKeys` entry.
 // failingEngine's `ids` are handed out by successive session.id calls (the last one repeats).
 type Fail = {
   get?: boolean
@@ -163,6 +172,7 @@ type Fail = {
   sessionId?: boolean
   defer?: boolean
   deferGet?: boolean
+  deferKeys?: boolean
 }
 const failingEngine = (on: On, fail: Fail, entries: Record<string, unknown> = {}, ids: string[] = ['session-1']) => {
   const calls = {
@@ -175,6 +185,7 @@ const failingEngine = (on: On, fail: Fail, entries: Record<string, unknown> = {}
     nextReached: false,
     release: [] as (() => void)[],
     releaseGet: [] as (() => void)[],
+    releaseKeys: [] as (() => void)[],
   }
   const store: Record<string, unknown> = { ...entries }
   on('session.start', (_$, e) => {
@@ -213,8 +224,9 @@ const failingEngine = (on: On, fail: Fail, entries: Record<string, unknown> = {}
     store[e.key] = e.value
     return { value: undefined } as never
   })
-  on('store.keys', () => {
+  on('store.keys', async () => {
     if (fail.keys) throw new Error('unreadable store')
+    if (fail.deferKeys) await new Promise<void>(resolve => calls.releaseKeys.push(resolve))
     return { value: Object.keys(store) } as never
   })
   on('store.delete', (_$, e) => {
@@ -307,8 +319,8 @@ describe('storage errors', () => {
 
   test('unreadable store in tick: the update is skipped, then stale bars are dropped', async ($, on) => {
     const clock = mock.clock(on, { now: 7_000_000 })
-    // Another session, kept fresh: only the unreadable store can drop its bar.
-    const other = { updatedAt: 9_000_000_000, label: 'autre', tasks: [newTask({ id: 'o', kind: 'turn', agentId: null, title: 'Tâche distante', startedAt: 7_000_000 })] }
+    // Another session, written at the start: its bar leaves once stale, store readable or not.
+    const other = { updatedAt: 7_000_000, label: 'autre', tasks: [newTask({ id: 'o', kind: 'turn', agentId: null, title: 'Tâche distante', startedAt: 7_000_000 })] }
     const fail: Fail = {}
     failingEngine(on, fail, { 's:other': other })
 
@@ -410,20 +422,26 @@ describe('storage errors', () => {
 
   test('an unreadable remote entry never hides the readable sessions', async ($, on) => {
     const clock = mock.clock(on, { now: 9_000_000 })
-    const fresh = (label: string, title: string) => ({
-      updatedAt: 9_000_000_000,
+    const fresh = (label: string, title: string, updatedAt: number) => ({
+      updatedAt,
       label,
       tasks: [newTask({ id: label, kind: 'turn', agentId: null, title, startedAt: 9_000_000 })],
     })
-    failingEngine(on, { badKeys: ['s:cassee'] }, { 's:cassee': fresh('cassée', 'Illisible'), 's:saine': fresh('saine', 'Lisible') })
+    const calls = failingEngine(
+      on,
+      { badKeys: ['s:cassee'] },
+      { 's:cassee': fresh('cassée', 'Illisible', 9_000_000), 's:saine': fresh('saine', 'Lisible', 9_000_000) },
+    )
 
     await $.session.start(START)
     await clock.advance(2000)
     const ui = await $.ui.mount({ ...BAND, surface: 'terminal' })
     expect(await ui.find({ type: 'Text', text: /⇄ saine · Lisible/ })).toBeDefined()
     expect(await ui.find({ type: 'Text', text: /⇄ cassée/ })).toBeUndefined()
-    // Still there long after: the bad entry is skipped, not a reason to drop the others.
-    await clock.advance(20_000)
+    // Still there long after, once its writer refreshed it: the bad entry is skipped, not a reason to drop the others.
+    await clock.advance(18_000)
+    calls.store['s:saine'] = fresh('saine', 'Lisible', 9_020_000)
+    await clock.advance(2000)
     const later = await $.ui.mount({ ...BAND, surface: 'terminal' })
     expect(await later.find({ type: 'Text', text: /⇄ saine · Lisible/ })).toBeDefined()
   })
@@ -472,7 +490,7 @@ describe('session.id errors', () => {
     const clock = mock.clock(on, { now: 7_300_000 })
     const fail: Fail = {}
     const other = {
-      updatedAt: 9_000_000_000,
+      updatedAt: 7_300_000,
       label: 'autre',
       tasks: [newTask({ id: 'autre', kind: 'turn', agentId: null, title: 'Distante', startedAt: 7_300_000 })],
     }
@@ -563,6 +581,64 @@ describe('sharing generation', () => {
     const ui = await $.ui.mount({ ...BAND, surface: 'terminal' })
     expect(await ui.find({ type: 'Text', text: /⇄/ })).toBeUndefined()
     await ui.unmount()
+  })
+})
+
+describe('remote bars', () => {
+  const remoteEntry = (label: string, updatedAt: number) => ({
+    updatedAt,
+    label,
+    tasks: [newTask({ id: label, kind: 'turn', agentId: null, title: 'Tâche distante', startedAt: updatedAt })],
+  })
+
+  test('an entry dated far ahead is never drawn, one slightly ahead is', async ($, on) => {
+    const clock = mock.clock(on, { now: 7_800_000 })
+    failingEngine(on, {}, { 's:futur': remoteEntry('futur', 7_860_000), 's:proche': remoteEntry('proche', 7_803_000) })
+
+    await $.session.start(START)
+    await clock.advance(2000)
+    const ui = await $.ui.mount({ ...BAND, surface: 'terminal' })
+    // 58 s ahead: a clock that went back, never a live session.
+    expect(await ui.find({ type: 'Text', text: /⇄ futur/ })).toBeUndefined()
+    // 1 s ahead: a writer whose tick ran just after this one.
+    expect(await ui.find({ type: 'Text', text: /⇄ proche · Tâche distante/ })).toBeDefined()
+  })
+
+  test('a slow sharing pass never draws a bar that went stale while it ran', async ($, on) => {
+    const clock = mock.clock(on, { now: 7_600_000 })
+    const fail: Fail = { deferKeys: true }
+    // 10 s old when the pass starts at tick 2: still fresh for that pass.
+    const calls = failingEngine(on, fail, { 's:autre': remoteEntry('autre', 7_600_000 - 8000) })
+
+    await $.session.start(START)
+    await clock.advance(2000)
+    expect(calls.releaseKeys).toHaveLength(1)
+    // A live session writes meanwhile: the pass reads it too, which proves the pass completed.
+    calls.store['s:vivante'] = remoteEntry('vivante', 7_602_000)
+    await clock.advance(2000)
+    calls.releaseKeys[0]?.()
+    await clock.advance(0)
+
+    // 12 s old by now: the pass's older clock must not bring it back.
+    const ui = await $.ui.mount({ ...BAND, surface: 'terminal' })
+    expect(await ui.find({ type: 'Text', text: /⇄ vivante · Tâche distante/ })).toBeDefined()
+    expect(await ui.find({ type: 'Text', text: /⇄ autre/ })).toBeUndefined()
+  })
+
+  test('session.end drops other sessions\' bars', async ($, on) => {
+    const clock = mock.clock(on, { now: 7_700_000 })
+    failingEngine(on, {}, { 's:autre': remoteEntry('autre', 7_700_000) })
+
+    await $.session.start(START)
+    await clock.advance(2000)
+    let ui = await $.ui.mount({ ...BAND, surface: 'terminal' })
+    expect(await ui.find({ type: 'Text', text: /⇄ autre · Tâche distante/ })).toBeDefined()
+    await ui.unmount()
+
+    // The timer stops and fil's clock freezes: the bars must leave with the session.
+    await $.session.end(END)
+    ui = await $.ui.mount({ ...BAND, surface: 'terminal' })
+    expect(await ui.find({ type: 'Text', text: /⇄ autre/ })).toBeUndefined()
   })
 })
 
