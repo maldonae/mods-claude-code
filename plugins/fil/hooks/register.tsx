@@ -238,6 +238,7 @@ export const register: Register = on => {
     ctx.isSharing = false
     // Sans identifiant de session, fil reste local : la clé vide désactive le partage.
     ctx.sessionKey = await $.session.id().catch(() => '')
+    if (ctx.sessionKey === '') await update($, remote, () => [])
     ctx.label = e.cwd.split(/[\\/]/).filter(Boolean).pop() ?? 'session'
     const timer = $.clock.every(1000, () => {
       void tick($).catch(() => undefined)

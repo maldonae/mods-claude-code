@@ -422,6 +422,29 @@ describe('session.id errors', () => {
     expect(calls.setTries).toBe(0)
     expect(calls.deletes).toBe(0)
   })
+
+  test('session.id fails on a later start: bars inherited from the previous session are dropped', async ($, on) => {
+    const clock = mock.clock(on, { now: 7_300_000 })
+    const fail: Fail = {}
+    const other = {
+      updatedAt: 9_000_000_000,
+      label: 'autre',
+      tasks: [newTask({ id: 'autre', kind: 'turn', agentId: null, title: 'Distante', startedAt: 7_300_000 })],
+    }
+    failingEngine(on, fail, { enabled: true, 's:autre': other })
+
+    await $.session.start(START)
+    await clock.advance(2000)
+    const first = await $.ui.mount({ ...BAND, surface: 'terminal' })
+    expect(await first.find({ type: 'Text', text: /⇄ autre · Distante/ })).toBeDefined()
+
+    // The next start gets no session id: fil stays local and keeps no other session's bar.
+    fail.sessionId = true
+    await $.session.start(START)
+    await clock.advance(2000)
+    const second = await $.ui.mount({ ...BAND, surface: 'terminal' })
+    expect(await second.find({ type: 'Text', text: /⇄ autre/ })).toBeUndefined()
+  })
 })
 
 describe('sharing generation', () => {
