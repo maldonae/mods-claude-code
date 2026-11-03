@@ -91,7 +91,12 @@ async function tick($: EngineInterface): Promise<void> {
   const list = await read($, tasks)
   const kept = list.filter(t => t.status === 'running' || now - (t.endedAt ?? now) < KEEP_DONE_MS)
   if (kept.length !== list.length) await update($, tasks, l => l.filter(t => kept.some(k => k.id === t.id)))
-  if (kept.length > 0 || (await read($, remote)).length > 0) await update($, clockNow, () => now)
+  // Other sessions' bars age out on every tick: an unreadable or hung store never keeps them past REMOTE_STALE_MS.
+  const isFresh = (r: FilRemote) => now - r.updatedAt <= REMOTE_STALE_MS
+  const shared = await read($, remote)
+  const fresh = shared.filter(isFresh)
+  if (fresh.length !== shared.length) await update($, remote, l => l.filter(isFresh))
+  if (kept.length > 0 || fresh.length > 0) await update($, clockNow, () => now)
   // The status line: shown wherever the band above the prompt is not drawn.
   const line = (await read($, enabled)) ? statusText(kept, now) : ''
   if (line !== ctx.lastStatus) {
@@ -168,7 +173,7 @@ async function readOthers($: EngineInterface, now: number): Promise<FilRemote[] 
       if (entry?.updatedAt !== undefined && now - entry.updatedAt > 10 * REMOTE_STALE_MS) await $.store.delete(key).catch(() => undefined)
       continue
     }
-    others.push({ session: key.slice(STORE_SESSION.length), label: entry.label ?? '?', tasks: entry.tasks ?? [] })
+    others.push({ session: key.slice(STORE_SESSION.length), label: entry.label ?? '?', updatedAt: entry.updatedAt, tasks: entry.tasks ?? [] })
   }
   return others
 }
