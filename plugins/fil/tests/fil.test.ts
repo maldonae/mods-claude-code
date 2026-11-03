@@ -148,7 +148,10 @@ describe('band', () => {
 
 // The engine beneath fil, with a store that fails on demand (`fail` can change mid-test):
 // `hang` leaves every store.set pending forever, `badKeys` makes store.get throw for those keys only,
-// `register` makes command.register throw, `sessionId` makes session.id throw.
+// `register` makes command.register throw, `sessionId` makes session.id throw,
+// `defer` holds each store.set until the test calls the matching `calls.release` entry,
+// `deferGet` holds each store.get('enabled') until the test calls the matching `calls.releaseGet` entry.
+// failingEngine's `ids` are handed out by successive session.id calls (the last one repeats).
 type Fail = {
   get?: boolean
   set?: boolean
@@ -158,8 +161,10 @@ type Fail = {
   badKeys?: string[]
   register?: boolean
   sessionId?: boolean
+  defer?: boolean
+  deferGet?: boolean
 }
-const failingEngine = (on: On, fail: Fail, entries: Record<string, unknown> = {}) => {
+const failingEngine = (on: On, fail: Fail, entries: Record<string, unknown> = {}, ids: string[] = ['session-1']) => {
   const calls = {
     registered: 0,
     opens: 0,
@@ -168,6 +173,8 @@ const failingEngine = (on: On, fail: Fail, entries: Record<string, unknown> = {}
     deletes: 0,
     statuses: [] as (string | undefined)[],
     nextReached: false,
+    release: [] as (() => void)[],
+    releaseGet: [] as (() => void)[],
   }
   const store: Record<string, unknown> = { ...entries }
   on('session.start', (_$, e) => {
@@ -177,7 +184,7 @@ const failingEngine = (on: On, fail: Fail, entries: Record<string, unknown> = {}
   on('session.end', (_$, e) => ({ sessionId: e.sessionId }))
   on('session.id', () => {
     if (fail.sessionId) throw new Error('no session id')
-    return { value: 'session-1' } as never
+    return { value: ids.length > 1 ? ids.shift() : ids[0] } as never
   })
   on('ui.open', () => {
     calls.opens += 1
@@ -192,13 +199,15 @@ const failingEngine = (on: On, fail: Fail, entries: Record<string, unknown> = {}
     if (fail.register) throw new Error('command refused')
     return { value: undefined } as never
   })
-  on('store.get', (_$, e) => {
+  on('store.get', async (_$, e) => {
     if (fail.get || fail.badKeys?.includes(e.key)) throw new Error('unreadable store')
+    if (fail.deferGet && e.key === 'enabled') await new Promise<void>(resolve => calls.releaseGet.push(resolve))
     return { value: store[e.key] } as never
   })
   on('store.set', async (_$, e) => {
     calls.setTries += 1
     if (fail.hang) await new Promise(() => undefined)
+    if (fail.defer) await new Promise<void>(resolve => calls.release.push(resolve))
     if (fail.set) throw new Error('read-only store')
     calls.sets += 1
     store[e.key] = e.value
@@ -220,7 +229,7 @@ const failingEngine = (on: On, fail: Fail, entries: Record<string, unknown> = {}
     const { Text } = $.ui.resolve(e)
     return h(Text, null, 'engine') as RenderElement
   })
-  return calls
+  return Object.assign(calls, { store })
 }
 
 const START = { cwd: '/projets/fil', surface: 'terminal' as const, isInteractive: true }
@@ -412,6 +421,80 @@ describe('session.id errors', () => {
     expect(calls.statuses.at(-1)).toMatch(/^▶ .*Read a\.ts/)
     expect(calls.setTries).toBe(0)
     expect(calls.deletes).toBe(0)
+  })
+})
+
+describe('sharing generation', () => {
+  test('a sharing pass from the previous session settles late: no orphan entry, no self bar, lock kept', async ($, on) => {
+    const clock = mock.clock(on, { now: 10_000_000 })
+    const calls = failingEngine(on, { defer: true }, {}, ['session-1', 'session-2'])
+
+    // Session 1: tick 2 starts sharing, and its store.set is held.
+    await $.session.start(START)
+    await $.turn.start({ text: 'Tâche ancienne', turnId: 't1' })
+    await $.tool.call({ tool: 'Read', file_path: '/a.ts' })
+    await clock.advance(2000)
+    expect(calls.setTries).toBe(1)
+
+    // Session 2 starts while session 1's write is still pending; its own tick 2 starts a pass, held too.
+    await $.session.end(END)
+    await $.session.start(START)
+    await clock.advance(2000)
+    expect(calls.setTries).toBe(2)
+
+    // Session 1's write settles late; tick 3 (odd) only lets it run to its end.
+    expect(calls.release).toHaveLength(2)
+    calls.release[0]?.()
+    await clock.advance(1000)
+    expect(calls.store['s:session-1']).toBeUndefined()
+    const ui = await $.ui.mount({ ...BAND, surface: 'terminal' })
+    expect(await ui.find({ type: 'Text', text: /⇄/ })).toBeUndefined()
+    await ui.unmount()
+
+    // Session 2's pass is still pending: tick 4 must not start another one.
+    await clock.advance(1000)
+    expect(calls.setTries).toBe(2)
+  })
+
+  test('session.start without session.end: a write settling while it starts is still removed', async ($, on) => {
+    const clock = mock.clock(on, { now: 11_000_000 })
+    const fail: Fail = { defer: true }
+    const calls = failingEngine(on, fail, {}, ['session-1', 'session-2'])
+    // Lets the engine run what is already queued, without moving fil's clock.
+    const settle = () => clock.advance(0)
+
+    // Session 1: tick 2 starts sharing, and its store.set is held.
+    await $.session.start(START)
+    await $.turn.start({ text: 'Tâche ancienne', turnId: 't1' })
+    await $.tool.call({ tool: 'Read', file_path: '/a.ts' })
+    await clock.advance(2000)
+    expect(calls.setTries).toBe(1)
+
+    // Session 2 starts directly, with no session.end, and stops on its store.get('enabled').
+    fail.deferGet = true
+    const starting = $.session.start(START)
+    await settle()
+    expect(calls.releaseGet).toHaveLength(1)
+
+    // Session 1's write settles while session 2 is still starting.
+    calls.release[0]?.()
+    await settle()
+    calls.releaseGet[0]?.()
+    await starting
+
+    // Session 2's tick 2 starts its own pass, held too; tick 4 must not start another one.
+    await clock.advance(2000)
+    expect(calls.release).toHaveLength(2)
+    await clock.advance(2000)
+    expect(calls.setTries).toBe(2)
+
+    // Session 2's pass settles and reads the other sessions: session 1 is not among them.
+    calls.release[1]?.()
+    await clock.advance(1000)
+    expect(calls.store['s:session-1']).toBeUndefined()
+    const ui = await $.ui.mount({ ...BAND, surface: 'terminal' })
+    expect(await ui.find({ type: 'Text', text: /⇄/ })).toBeUndefined()
+    await ui.unmount()
   })
 })
 

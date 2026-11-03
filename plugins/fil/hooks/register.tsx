@@ -45,6 +45,8 @@ const ctx = {
   stopTick: undefined as (() => void) | undefined,
   /** A sharing pass is running: the next one waits its turn. */
   isSharing: false,
+  /** Bumped at each session start and end: a pass from an older generation leaves this session's state alone. */
+  generation: 0,
 }
 /** Events seen since load, for `/fil status`. */
 const seen = { submit: 0, turnStart: 0, tool: 0, complete: 0, render: 0, pane: 0, tick: 0 }
@@ -83,6 +85,7 @@ async function chime($: EngineInterface): Promise<void> {
 }
 
 async function tick($: EngineInterface): Promise<void> {
+  const generation = ctx.generation
   seen.tick += 1
   const now = await $.clock.now()
   const list = await read($, tasks)
@@ -96,6 +99,8 @@ async function tick($: EngineInterface): Promise<void> {
     $.ui.status(line === '' ? undefined : line)
   }
 
+  // A tick begun before a session start or end never shares for the next session.
+  if (ctx.generation !== generation) return
   ctx.ticks += 1
   if (ctx.sessionKey === '' || ctx.ticks % 2 !== 0) return
   // One sharing pass at a time: a slow or hung store must not stack passes,
@@ -103,27 +108,43 @@ async function tick($: EngineInterface): Promise<void> {
   if (ctx.isSharing) return
   ctx.isSharing = true
   try {
-    await share($, now, kept)
+    await share($, now, kept, generation)
   } finally {
-    ctx.isSharing = false
+    // A pass that outlived its session never releases the lock of the next one.
+    if (ctx.generation === generation) ctx.isSharing = false
   }
 }
 
 /** Cross-session sharing through $.store, best effort: each session writes its own key. */
-async function share($: EngineInterface, now: number, kept: readonly FilTask[]): Promise<void> {
+async function share($: EngineInterface, now: number, kept: readonly FilTask[], generation: number): Promise<void> {
+  const key = STORE_SESSION + ctx.sessionKey
+  // After any await, the session may have ended or restarted: a stale pass stops there.
+  const isStale = () => ctx.generation !== generation
   // A failed write is retried on a later tick.
   if (kept.length > 0) {
     const entry = { updatedAt: now, label: ctx.label, tasks: kept }
-    if (await $.store.set(STORE_SESSION + ctx.sessionKey, entry).then(() => true, () => false)) ctx.hasPublished = true
+    const isSaved = await $.store.set(key, entry).then(() => true, () => false)
+    if (isStale()) {
+      // Written after its session ended: removed again, unless the new session uses the same key,
+      // which then owns the entry and its cleanup.
+      if (isSaved && key !== STORE_SESSION + ctx.sessionKey) await $.store.delete(key).catch(() => undefined)
+      else if (isSaved) ctx.hasPublished = true
+      return
+    }
+    if (isSaved) ctx.hasPublished = true
   } else if (ctx.hasPublished) {
-    if (await $.store.delete(STORE_SESSION + ctx.sessionKey).then(() => true, () => false)) ctx.hasPublished = false
+    const isDeleted = await $.store.delete(key).then(() => true, () => false)
+    if (isStale()) return
+    if (isDeleted) ctx.hasPublished = false
   }
   const others = await readOthers($, now)
+  if (isStale()) return
   if (others !== undefined) ctx.lastShared = now
   // Unreadable store: skip this tick, but never keep other sessions' bars past their staleness.
   const shared = others ?? (now - ctx.lastShared > REMOTE_STALE_MS ? [] : undefined)
   if (shared === undefined) return
   const before = await read($, remote)
+  if (isStale()) return
   if (JSON.stringify(before) !== JSON.stringify(shared)) await update($, remote, () => shared)
 }
 
@@ -191,6 +212,9 @@ export const register: Register = on => {
     // The previous session's timer stops before anything is awaited.
     ctx.stopTick?.()
     ctx.stopTick = undefined
+    ctx.generation += 1
+    // Until session.id answers below, no pass may write or keep an entry under the previous key.
+    ctx.sessionKey = ''
     // A refused registration only drops /fil: the rest of the setup still runs.
     await $.command
       .register({
@@ -232,6 +256,7 @@ export const register: Register = on => {
     const wasPublished = ctx.hasPublished
     ctx.stopTick?.()
     ctx.stopTick = undefined
+    ctx.generation += 1
     ctx.hasPublished = false
     ctx.sessionKey = ''
     // Best-effort cleanup: a stale entry expires on its own in other sessions.
