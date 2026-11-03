@@ -15,7 +15,7 @@ export type FilTask = {
   planTotal: number
 }
 
-export type FilRemote = { session: string; label: string; tasks: FilTask[] }
+export type FilRemote = { session: string; label: string; updatedAt: number; tasks: FilTask[] }
 
 declare module 'claude-code' {
   interface PluginState {

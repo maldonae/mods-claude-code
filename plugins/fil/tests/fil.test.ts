@@ -330,6 +330,51 @@ describe('storage errors', () => {
     expect(await ui.find({ type: 'Text', text: 'engine' })).toBeDefined()
   })
 
+  test('unreadable store in tick: a bar read when almost stale is dropped once past REMOTE_STALE_MS', async ($, on) => {
+    const clock = mock.clock(on, { now: 7_400_000 })
+    // Written 8 s before the start, never refreshed: 10 s old at the first sharing pass.
+    const other = { updatedAt: 7_400_000 - 8000, label: 'autre', tasks: [newTask({ id: 'o', kind: 'turn', agentId: null, title: 'Tâche distante', startedAt: 7_390_000 })] }
+    const fail: Fail = {}
+    failingEngine(on, fail, { 's:other': other })
+
+    await $.session.start(START)
+    await clock.advance(2000)
+    let ui = await $.ui.mount({ ...BAND, surface: 'terminal' })
+    expect(await ui.find({ type: 'Text', text: /⇄ autre · Tâche distante/ })).toBeDefined()
+    await ui.unmount()
+
+    // 12 s old: past REMOTE_STALE_MS, even though the store can no longer be read.
+    fail.keys = true
+    await clock.advance(2000)
+    ui = await $.ui.mount({ ...BAND, surface: 'terminal' })
+    expect(await ui.find({ type: 'Text', text: /⇄ autre/ })).toBeUndefined()
+  })
+
+  test('a hung sharing pass never keeps a remote bar past REMOTE_STALE_MS', async ($, on) => {
+    const clock = mock.clock(on, { now: 7_500_000 })
+    const other = { updatedAt: 7_500_000, label: 'autre', tasks: [newTask({ id: 'o', kind: 'turn', agentId: null, title: 'Tâche distante', startedAt: 7_500_000 })] }
+    const fail: Fail = {}
+    const calls = failingEngine(on, fail, { 's:other': other })
+
+    await $.session.start(START)
+    await $.turn.start({ text: 'Tâche locale', turnId: 't1' })
+    await $.tool.call({ tool: 'Read', file_path: '/a.ts' })
+    await clock.advance(2000)
+    let ui = await $.ui.mount({ ...BAND, surface: 'terminal' })
+    expect(await ui.find({ type: 'Text', text: /⇄ autre · Tâche distante/ })).toBeDefined()
+    await ui.unmount()
+
+    // The next pass hangs on store.set and keeps the lock: no pass refreshes remote any more.
+    fail.hang = true
+    await clock.advance(10_000)
+    expect(calls.setTries).toBe(2)
+    ui = await $.ui.mount({ ...BAND, surface: 'terminal' })
+    expect(await ui.find({ type: 'Text', text: /⇄ autre/ })).toBeUndefined()
+    // The local task is still drawn: only the stale remote bar is gone.
+    expect(await ui.find({ type: 'Text', text: /▶ Tâche locale/ })).toBeDefined()
+    expect(await ui.find({ type: 'Text', text: /Read a\.ts/ })).toBeDefined()
+  })
+
   test('a hung store never freezes the status line nor the pruning of done tasks', async ($, on) => {
     const clock = mock.clock(on, { now: 8_000_000 })
     on('turn.complete', (_$, e) => ({ text: e.answer }))
