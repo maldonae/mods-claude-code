@@ -139,7 +139,7 @@ async function share($: EngineInterface, now: number, kept: readonly FilTask[], 
     if (isStale()) return
     if (isDeleted) ctx.hasPublished = false
   }
-  const others = await readOthers($, now)
+  const others = await readOthers($)
   if (isStale()) return
   if (others !== undefined) ctx.lastShared = now
   // Unreadable store: skip this tick, but never keep other sessions' bars past their staleness.
@@ -159,7 +159,7 @@ async function share($: EngineInterface, now: number, kept: readonly FilTask[], 
  * Other sessions' tasks from the store, or undefined when its keys cannot be read this tick.
  * An unreadable entry is skipped on its own: it never hides the readable ones.
  */
-async function readOthers($: EngineInterface, now: number): Promise<FilRemote[] | undefined> {
+async function readOthers($: EngineInterface): Promise<FilRemote[] | undefined> {
   const keys = await $.store.keys().catch(() => undefined)
   if (keys === undefined) return undefined
   const others: FilRemote[] = []
@@ -171,8 +171,11 @@ async function readOthers($: EngineInterface, now: number): Promise<FilRemote[] 
     )
     if (got === undefined) continue
     const { entry } = got
-    if (entry?.updatedAt === undefined || !isRemoteFresh(entry.updatedAt, now)) {
-      if (entry?.updatedAt !== undefined && now - entry.updatedAt > 10 * REMOTE_STALE_MS) await $.store.delete(key).catch(() => undefined)
+    // Aged against the clock as it is once this entry is read: a slow pass must not take an entry
+    // written meanwhile by a live session for a future-dated one.
+    const at = await $.clock.now()
+    if (entry?.updatedAt === undefined || !isRemoteFresh(entry.updatedAt, at)) {
+      if (entry?.updatedAt !== undefined && at - entry.updatedAt > 10 * REMOTE_STALE_MS) await $.store.delete(key).catch(() => undefined)
       continue
     }
     others.push({ session: key.slice(STORE_SESSION.length), label: entry.label ?? '?', updatedAt: entry.updatedAt, tasks: entry.tasks ?? [] })
