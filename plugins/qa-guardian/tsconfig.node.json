@@ -1,0 +1,13 @@
+{
+  // Contrôle des tests Node (scripts/coverage.mjs) : types Node, imports `.ts`, sans émission.
+  // include/exclude redéfinis : l'exclusion des *.node.mts de tsconfig.json ne s'applique pas ici.
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "noEmit": true,
+    "allowImportingTsExtensions": true,
+    "typeRoots": [".claude-plugin/types", "../../node_modules/@types"],
+    "types": ["claude-code", "claude-code-tools", "claude-code-mcp", "node"]
+  },
+  "include": ["tests/**/*.node.mts", "types/**/*.d.ts"],
+  "exclude": []
+}
