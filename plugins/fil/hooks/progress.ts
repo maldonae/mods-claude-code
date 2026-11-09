@@ -8,6 +8,14 @@ export const LONG_MS = 15000
 export const KEEP_DONE_MS = 8000
 /** Another session's entry older than this is stale. */
 export const REMOTE_STALE_MS = 10000
+/** How far ahead of this session's clock another session's entry may be dated. */
+export const REMOTE_SKEW_MS = 2000
+
+/** Another session's entry is drawn only while recent: never past REMOTE_STALE_MS, never dated far ahead. */
+export function isRemoteFresh(updatedAt: number, now: number): boolean {
+  const age = now - updatedAt
+  return age >= -REMOTE_SKEW_MS && age <= REMOTE_STALE_MS
+}
 
 /** Estimated progress, 0..100. Only a finished task reaches 100. */
 export function estimate(t: FilTask, now: number): number {

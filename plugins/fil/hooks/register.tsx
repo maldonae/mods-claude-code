@@ -10,6 +10,7 @@ import {
   bar,
   estimate,
   formatElapsed,
+  isRemoteFresh,
   isVisible,
   newTask,
   statusText,
@@ -91,12 +92,8 @@ async function tick($: EngineInterface): Promise<void> {
   const list = await read($, tasks)
   const kept = list.filter(t => t.status === 'running' || now - (t.endedAt ?? now) < KEEP_DONE_MS)
   if (kept.length !== list.length) await update($, tasks, l => l.filter(t => kept.some(k => k.id === t.id)))
-  // Other sessions' bars age out on every tick: an unreadable or hung store never keeps them past REMOTE_STALE_MS.
-  const isFresh = (r: FilRemote) => now - r.updatedAt <= REMOTE_STALE_MS
-  const shared = await read($, remote)
-  const fresh = shared.filter(isFresh)
-  if (fresh.length !== shared.length) await update($, remote, l => l.filter(isFresh))
-  if (kept.length > 0 || fresh.length > 0) await update($, clockNow, () => now)
+  // The clock keeps moving while other sessions' bars are held: the render drops them once stale.
+  if (kept.length > 0 || (await read($, remote)).length > 0) await update($, clockNow, () => now)
   // The status line: shown wherever the band above the prompt is not drawn.
   const line = (await read($, enabled)) ? statusText(kept, now) : ''
   if (line !== ctx.lastStatus) {
@@ -150,7 +147,12 @@ async function share($: EngineInterface, now: number, kept: readonly FilTask[], 
   if (shared === undefined) return
   const before = await read($, remote)
   if (isStale()) return
-  if (JSON.stringify(before) !== JSON.stringify(shared)) await update($, remote, () => shared)
+  if (JSON.stringify(before) !== JSON.stringify(shared)) {
+    await update($, remote, () => shared)
+    // The render filters with clockNow: it must not lag behind the bars just read, nor go back.
+    const current = await $.clock.now()
+    await update($, clockNow, c => Math.max(c, current))
+  }
 }
 
 /**
@@ -169,7 +171,7 @@ async function readOthers($: EngineInterface, now: number): Promise<FilRemote[] 
     )
     if (got === undefined) continue
     const { entry } = got
-    if (entry?.updatedAt === undefined || now - entry.updatedAt > REMOTE_STALE_MS) {
+    if (entry?.updatedAt === undefined || !isRemoteFresh(entry.updatedAt, now)) {
       if (entry?.updatedAt !== undefined && now - entry.updatedAt > 10 * REMOTE_STALE_MS) await $.store.delete(key).catch(() => undefined)
       continue
     }
@@ -181,7 +183,10 @@ async function readOthers($: EngineInterface, now: number): Promise<FilRemote[] 
 /** Every bar to draw: this session's visible tasks, then other sessions'. */
 async function shownTasks($: EngineInterface, now: number, limit: number): Promise<FilTask[]> {
   const mine = (await read($, tasks)).filter(t => isVisible(t, now))
-  const others = (await read($, remote)).flatMap(r => r.tasks.map(t => ({ ...t, title: `⇄ ${r.label} · ${t.title}` })))
+  // Filtered at render: a slow, hung or unreadable store never draws a stale or future-dated bar.
+  const others = (await read($, remote))
+    .filter(r => isRemoteFresh(r.updatedAt, now))
+    .flatMap(r => r.tasks.map(t => ({ ...t, title: `⇄ ${r.label} · ${t.title}` })))
   return [...mine, ...others].slice(-Math.max(1, limit))
 }
 
@@ -265,6 +270,8 @@ export const register: Register = on => {
     ctx.generation += 1
     ctx.hasPublished = false
     ctx.sessionKey = ''
+    // The timer is stopped and fil's clock frozen: other sessions' bars leave with this session.
+    await update($, remote, () => [])
     // Best-effort cleanup: a stale entry expires on its own in other sessions.
     if (wasPublished && key !== '') await $.store.delete(STORE_SESSION + key).catch(() => undefined)
 
