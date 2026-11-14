@@ -15,6 +15,7 @@ import {
   isOverThreshold,
   parseCommand,
   parseThreshold,
+  toLogLines,
 } from '../hooks/relay.ts'
 
 // Assemblé à l'exécution : ce fichier ne contient pas lui-même de clé.
@@ -201,5 +202,35 @@ describe('relay/hooks/relay.ts : createLauncher', () => {
     } finally {
       process.off('unhandledRejection', onUnhandled)
     }
+  })
+})
+
+describe('relay/hooks/relay.ts : toLogLines', () => {
+  const hasBreak = (lines: string[]): boolean => lines.some(line => /[\r\n]/.test(line))
+
+  test('découpe sur LF, CRLF et CR isolé', () => {
+    assert.deepEqual(toLogLines('a\nb'), ['a', 'b'])
+    assert.deepEqual(toLogLines('a\r\nb'), ['a', 'b'])
+    assert.deepEqual(toLogLines('a\rb'), ['a', 'b'])
+    assert.deepEqual(toLogLines('a\r\nb\rc\nd'), ['a', 'b', 'c', 'd'])
+  })
+
+  test('omet les lignes vides ou faites d’espaces', () => {
+    assert.deepEqual(toLogLines('a\n\nb\n   \n\t\nc\n'), ['a', 'b', 'c'])
+    assert.deepEqual(toLogLines('\n\n'), [])
+  })
+
+  test('garde chaque ligne telle quelle, indentation comprise', () => {
+    assert.deepEqual(toLogLines('titre\n  - point indenté\n\tcode  '), ['titre', '  - point indenté', '\tcode  '])
+  })
+
+  test('chaîne vide : aucune ligne', () => {
+    assert.deepEqual(toLogLines(''), [])
+  })
+
+  test('aucune ligne retournée ne contient \n ni \r', () => {
+    const lines = toLogLines('relay › fiche écrite : x\n\nLis x.\r\n\r\nÉtape 1\rÉtape 2\n')
+    assert.deepEqual(lines, ['relay › fiche écrite : x', 'Lis x.', 'Étape 1', 'Étape 2'])
+    assert.equal(hasBreak(lines), false)
   })
 })

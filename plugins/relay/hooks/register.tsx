@@ -13,6 +13,7 @@ import {
   isOverThreshold,
   parseCommand,
   parseThreshold,
+  toLogLines,
 } from './relay'
 
 type Surface = UiCopyArgs['surface']
@@ -41,6 +42,11 @@ async function setPercent($: EngineInterface, percent: number | null): Promise<v
   if (crossed && (await read($, isEnabled)) && !(await read($, isSnoozed))) {
     $.ui.toast(`relay : contexte à ${percent} % (seuil ${limit} %) — pensez à passer le relais`)
   }
+}
+
+// Un appel $.ui.log par ligne, dans l'ordre : un `\n` transmis deviendrait U+FFFD dans le transcript (#34).
+function logLines($: EngineInterface, text: string): void {
+  for (const line of toLogLines(text)) $.ui.log(line)
 }
 
 async function fail($: EngineInterface, message: string): Promise<void> {
@@ -80,14 +86,15 @@ async function runRelay($: EngineInterface, surface: Surface): Promise<void> {
     const note = sheet.masked > 0 ? `\n${sheet.masked} secret(s) remplacé(s) par [masqué].` : ''
     if (!isCopyable) {
       $.ui.toast('relay : formulation suspecte dans la fiche, prompt non copié')
-      $.ui.log(
+      logLines(
+        $,
         `relay › fiche écrite : ${path}${note}\n⚠ formulation suspecte (« ${sheet.suspect} ») : ` +
           'prompt de reprise non copié. Relis la fiche avant de la donner à une nouvelle session.',
       )
       return
     }
     const copied = await $.ui.copy({ text: sheet.resume, surface })
-    $.ui.log(`relay › fiche écrite : ${path}${copied.isCopied ? ' (prompt copié)' : ''}${note}\n\n${sheet.resume}`)
+    logLines($, `relay › fiche écrite : ${path}${copied.isCopied ? ' (prompt copié)' : ''}${note}\n\n${sheet.resume}`)
   } catch (err) {
     await fail($, err instanceof Error ? err.message : String(err))
   }
