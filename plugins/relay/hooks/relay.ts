@@ -133,3 +133,41 @@ export const finalize = (reply: string, path: string): Sheet | undefined => {
 
 export const isOverThreshold = (percent: number | null, threshold: number): boolean =>
   percent !== null && percent >= threshold
+
+/**
+ * Lanceur gardé : `start` rend la main aussitôt, sans attendre `task`, pour qu'un `onPress` ne
+ * retienne pas la chaîne `ui.press` (budget de 10 s) pendant une tâche longue.
+ * Un seul lancement à la fois ; la garde est prise avant tout démarrage asynchrone et libérée à la
+ * fin, en réussite comme en échec. Un échec de `onError` est lui-même absorbé : aucun rejet détaché.
+ */
+export type Launcher = {
+  /** Vrai si `task` est lancée ; faux (sans rien lancer) si un lancement est déjà en cours. */
+  start: (task: () => Promise<void>, onError: (err: unknown) => unknown) => boolean
+  isBusy: () => boolean
+}
+
+export const createLauncher = (): Launcher => {
+  let busy = false
+
+  return {
+    isBusy: () => busy,
+    start: (task, onError) => {
+      if (busy) return false
+      busy = true
+      let running: Promise<void>
+      try {
+        running = task()
+      } catch (err) {
+        running = Promise.reject(err)
+      }
+      running
+        .catch(onError)
+        .catch(() => undefined)
+        .finally(() => {
+          busy = false
+        })
+
+      return true
+    },
+  }
+}

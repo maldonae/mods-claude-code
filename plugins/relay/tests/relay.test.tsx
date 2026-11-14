@@ -73,6 +73,10 @@ const engine = (
   on: On,
   opts: {
     reply?: string
+    // Réponses successives du fork, avant `reply` ; `null` : le fork ne répond pas (erreur d'API).
+    replies?: (string | null)[]
+    // Le fork attend cette promesse : une rédaction qui reste en cours, sans attente réelle.
+    gate?: Promise<void>
     taken?: string[]
     stored?: Record<string, unknown>
     fail?: { register?: boolean; get?: boolean; set?: boolean }
@@ -88,9 +92,11 @@ const engine = (
     saved: [] as unknown[],
     nextReached: false,
     registered: 0,
+    order: [] as string[],
   }
+  const replies = [...(opts.replies ?? [])]
   const store: Record<string, unknown> = { ...opts.stored }
-  mock.clock(on, { now: T0 })
+  const clock = mock.clock(on, { now: T0 })
   on('session.start', (_$, e) => {
     calls.nextReached = true
     return { cwd: e.cwd }
@@ -115,19 +121,27 @@ const engine = (
   on('fs.write', (_$, e) => {
     if (disk.has(rel(e.path))) throw new Error(`écrasement interdit : ${e.path}`)
     disk.set(rel(e.path), e.text)
+    calls.order.push('write')
     return { value: undefined } as never
   })
-  on('model.fork', (_$, e) => {
+  on('model.fork', async (_$, e) => {
     calls.forks += 1
     calls.prompts.push(e.prompt)
-    return { value: { isAnswered: true, text: opts.reply ?? SHEET, usage: USAGE } } as never
+    if (opts.gate) await opts.gate
+    const answer = replies.length > 0 ? replies.shift() : (opts.reply ?? SHEET)
+    if (answer === null) {
+      return { value: { isAnswered: false, reason: 'api-error', status: 529, error: 'overloaded', usage: USAGE } } as never
+    }
+    return { value: { isAnswered: true, text: answer, usage: USAGE } } as never
   })
   on('ui.copy', (_$, e) => {
     calls.copies.push(e.text)
+    calls.order.push('copy')
     return { value: { isCopied: true } } as never
   })
   on('ui.log', (_$, e) => {
     calls.logs.push(e.text)
+    calls.order.push('log')
     return { value: undefined } as never
   })
   on('ui.toast', (_$, e) => {
@@ -138,7 +152,7 @@ const engine = (
     const { Text } = $.ui.resolve(e)
     return <Text>moteur</Text>
   })
-  return { disk, calls }
+  return { disk, calls, clock }
 }
 
 test('commandes et seuil', () => {
@@ -252,6 +266,73 @@ test('réponse incomplète : échec affiché, aucun fichier', async ($, on) => {
   expect(disk.size).toBe(0)
   expect((await ui.find({ type: 'Text', text: /échec/ }))?.text).toContain('incomplète')
   expect(await ui.find({ key: 'relay-retry' })).toBeDefined()
+  await ui.unmount()
+})
+
+// Bandeau déplié : `isCollapsed` est requis par MountTarget ; limité aux tests ci-dessous (BAND inchangé).
+const OPEN_BAND = { ...BAND, props: { ...BAND.props, isCollapsed: false } } as const
+
+// Le harnais attend le travail laissé en cours par onPress : ce test prouve la garde, l'ordre et
+// l'absence de second fork, pas que onPress rend la main tôt (voir createLauncher, tests Node).
+test('écriture en cours : /relay maintenant ne rouvre pas la confirmation ni un second fork', async ($, on) => {
+  let release!: () => void
+  const gate = new Promise<void>(done => {
+    release = done
+  })
+  const { disk, calls, clock } = engine(on, { gate })
+  await $.command.run(run('maintenant'))
+  const ui = await $.ui.mount({ ...OPEN_BAND, surface: 'terminal' })
+
+  const pressed = ui.press({ key: 'relay-yes' })
+  await clock.settle()
+  expect(calls.forks).toBe(1)
+  expect(await ui.find({ key: 'relay-yes' })).toBeUndefined()
+  expect((await ui.find({ type: 'Text', text: /rédige/ }))?.text).toContain('rédige')
+
+  expect(await $.command.run(run('maintenant'))).toMatchObject({ text: expect.stringContaining('déjà en cours') })
+  await clock.settle()
+  expect(await ui.find({ key: 'relay-yes' })).toBeUndefined()
+  expect(calls.forks).toBe(1)
+  expect(disk.size).toBe(0)
+  expect(calls.logs).toEqual([])
+
+  release()
+  await pressed
+  await clock.settle()
+  expect(calls.forks).toBe(1)
+  expect(disk.get(FIRST)).toContain('## Prochaines étapes')
+  // La fiche est écrite avant la copie et l'annonce de réussite.
+  expect(calls.order).toEqual(['write', 'copy', 'log'])
+  expect(calls.copies).toEqual([`Lis ${FIRST} puis reprends à la prochaine étape.`])
+  expect((await ui.find({ type: 'Text', text: /✓/ }))?.text).toContain(FIRST)
+  await ui.unmount()
+})
+
+test('reprise après échec : pas de réponse, puis réponse incomplète, puis nouvelle tentative réussie', async ($, on) => {
+  const { disk, calls, clock } = engine(on, { replies: [null, 'Désolé.', SHEET] })
+  await $.command.run(run('maintenant'))
+  const ui = await $.ui.mount({ ...OPEN_BAND, surface: 'terminal' })
+
+  await ui.press({ key: 'relay-yes' })
+  await clock.settle()
+  expect((await ui.find({ type: 'Text', text: /échec/ }))?.text).toContain('api-error')
+  expect(calls.forks).toBe(1)
+  expect(disk.size).toBe(0)
+
+  await ui.press({ key: 'relay-retry' })
+  await ui.press({ key: 'relay-yes' })
+  await clock.settle()
+  expect((await ui.find({ type: 'Text', text: /échec/ }))?.text).toContain('incomplète')
+  expect(calls.forks).toBe(2)
+  expect(disk.size).toBe(0)
+
+  await ui.press({ key: 'relay-retry' })
+  await ui.press({ key: 'relay-yes' })
+  await clock.settle()
+  expect(calls.forks).toBe(3)
+  expect(disk.get(FIRST)).toContain('## Prochaines étapes')
+  expect(calls.order).toEqual(['write', 'copy', 'log'])
+  expect((await ui.find({ type: 'Text', text: /✓/ }))?.text).toContain(FIRST)
   await ui.unmount()
 })
 
