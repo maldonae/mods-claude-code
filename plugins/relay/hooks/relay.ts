@@ -135,6 +135,13 @@ export const isOverThreshold = (percent: number | null, threshold: number): bool
   percent !== null && percent >= threshold
 
 /**
+ * Lignes d'un message destiné à `$.ui.log`, qui ajoute une seule ligne au transcript : le moteur y
+ * enregistre chaque `\n` comme U+FFFD (#34). Découpe sur `\r\n`, `\r` ou `\n`, omet les lignes
+ * vides ou faites d'espaces, et garde chaque ligne telle quelle (indentation comprise).
+ */
+export const toLogLines = (text: string): string[] => text.split(/\r\n|\r|\n/).filter(line => line.trim() !== '')
+
+/**
  * Lanceur gardé : `start` rend la main aussitôt, sans attendre `task`, pour qu'un `onPress` ne
  * retienne pas la chaîne `ui.press` (budget de 10 s) pendant une tâche longue.
  * Un seul lancement à la fois ; la garde est prise avant tout démarrage asynchrone et libérée à la
