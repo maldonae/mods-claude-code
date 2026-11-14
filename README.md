@@ -102,12 +102,20 @@ Pour retirer la marketplace et tous ses mods : `/plugin marketplace remove maldo
 ## Développement
 
 ```powershell
-npm install            # TypeScript et types Node, pour les tests Node
+npm install            # Installe TypeScript et les types Node déclarés
 npm run quality        # copies de guard.ts identiques, tests Node, claude plugin validate
 npm run test:mods      # tests du harnais de chaque mod (claude plugin test)
 ```
 
-La vérification de types (par exemple `tsc -p plugins/pen`) fonctionne une fois le mod chargé par Claude Code, qui écrit ses types dans `plugins/pen/.claude-plugin/types/` (ignoré par git).
+La vérification de types (par exemple `tsc -p plugins/pen`) nécessite aussi les types du moteur dans `plugins/pen/.claude-plugin/types/`.
+
+### Vérification des types
+
+`npm run quality` exécute `check:guard`, `test:node` et `validate`. Il ne lance pas de vérification TypeScript. L'exécution des tests Node ne remplace pas une vérification de types.
+
+Les configurations TypeScript des plugins dépendent de fichiers locaux sous `.claude-plugin/types/`, non suivis par Git et non fournis par les dépendances déclarées du dépôt. Un `npm install` fournit TypeScript et les types Node déclarés, mais ne suffit donc pas à rendre ces configurations utilisables sur un clone neuf.
+
+Les vérifications TypeScript sont actuellement effectuées dans l'environnement de développement, qui dispose de ces fichiers. La procédure pour obtenir les types du moteur dans un clone neuf reste à établir.
 
 ## Licence
 
