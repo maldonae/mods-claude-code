@@ -8,6 +8,7 @@ import {
   bar,
   estimate,
   formatElapsed,
+  isRemoteFresh,
   isVisible,
   newTask,
   statusText,
@@ -30,6 +31,14 @@ describe('progress', () => {
     assert.equal(bar(50, 10), '█████░░░░░')
     assert.equal(bar(150, 4), '████')
     assert.equal(bar(-5, 3), '░░░')
+  })
+
+  // L'âge vaut now - updatedAt : jusqu'à REMOTE_SKEW_MS dans le futur, jusqu'à REMOTE_STALE_MS dans le passé.
+  test('isRemoteFresh', () => {
+    assert.equal(isRemoteFresh(2000, 0), true)
+    assert.equal(isRemoteFresh(-10000, 0), true)
+    assert.equal(isRemoteFresh(2001, 0), false)
+    assert.equal(isRemoteFresh(-10001, 0), false)
   })
 
   test('truncate et titleOf', () => {
