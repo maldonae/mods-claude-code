@@ -107,6 +107,8 @@ npm run quality        # copies de guard.ts identiques, tests Node, claude plugi
 npm run test:mods      # tests du harnais de chaque mod (claude plugin test)
 ```
 
+Node.js `^22.18.0 || >=24.3.0` (champ `engines` de `package.json`) : les tests Node exécutent directement des fichiers `.mts`, ce qui suppose le retrait de types activé par défaut, et `test:node` utilise un motif glob. Version testée : v24.22.1 sous Windows 11 ; les autres versions et plateformes (Linux, macOS) ne sont pas vérifiées.
+
 La vérification de types (par exemple `tsc -p plugins/pen`) nécessite aussi les types du moteur dans `plugins/pen/.claude-plugin/types/`.
 
 ### Vérification des types

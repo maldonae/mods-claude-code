@@ -4,6 +4,9 @@
   "type": "module",
   "description": "Outils de développement de la marketplace maldonae-mods (inutiles pour installer les mods).",
   "license": "MIT",
+  "engines": {
+    "node": "^22.18.0 || >=24.3.0"
+  },
   "scripts": {
     "check:guard": "node scripts/check-guard.mjs",
     "test:node": "node --test \"plugins/*/tests/*.node.mts\"",
