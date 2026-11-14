@@ -1,4 +1,4 @@
-// Tests Node de plan.ts (couverture SonarQube) : node scripts/coverage.mjs
+// Tests Node des fonctions pures. Dans le dépôt de développement, scripts/coverage.mjs les exécute pour mesurer leur couverture.
 import assert from 'node:assert/strict'
 import { describe, test } from 'node:test'
 
