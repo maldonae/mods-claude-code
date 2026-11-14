@@ -1,4 +1,4 @@
-// Tests Node natifs des helpers purs, pour la couverture (scripts/coverage.mjs).
+// Tests Node des fonctions pures. Dans le dépôt de développement, scripts/coverage.mjs les exécute pour mesurer leur couverture.
 // Les tests du harnais (jauge.test.tsx, via `claude plugin test`) restent la référence.
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
