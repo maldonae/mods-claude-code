@@ -7,6 +7,7 @@ import {
   RELAY_DIR,
   baseName,
   buildForkPrompt,
+  createLauncher,
   finalize,
   freePath,
   isOverThreshold,
@@ -105,6 +106,9 @@ async function statusText($: EngineInterface): Promise<string> {
 }
 
 export const register: Register = on => {
+  // Garde commune aux lancements de la session : une fiche à la fois, quel que soit le rendu ou le clic.
+  const launcher = createLauncher()
+
   on('session.start', async ($, e, next) => {
     await $.command.register({
       name: 'relay',
@@ -145,6 +149,7 @@ export const register: Register = on => {
         }
       }
       case 'now': {
+        if (launcher.isBusy()) return { text: 'Une fiche de relais est déjà en cours d’écriture.' }
         await update($, isEnabled, () => true)
         await update($, phase, () => 'confirm')
         return { text: 'Confirmez au-dessus du prompt pour passer le relais.' }
@@ -174,6 +179,13 @@ export const register: Register = on => {
     const surface = e.surface
     const toIdle = () => update($, phase, () => 'idle')
     const ask = () => update($, phase, () => 'confirm')
+    // Retour synchrone : la chaîne ui.press ne dépend pas de la durée du fork ; les erreurs vont à fail.
+    const confirm = (): void => {
+      launcher.start(
+        () => runRelay($, surface),
+        err => fail($, err instanceof Error ? err.message : String(err)),
+      )
+    }
     const close = (
       <Button key="relay-close" label="×" plain dimColor role="dismiss" onPress={toIdle} />
     )
@@ -183,7 +195,7 @@ export const register: Register = on => {
       mine = (
         <Box key="relay" flexDirection="row">
           <Text color="warning">relay › Écrire une fiche de relais dans {RELAY_DIR}/ ? </Text>
-          <Button key="relay-yes" label="Confirmer" variant="primary" onPress={() => runRelay($, surface)} />
+          <Button key="relay-yes" label="Confirmer" variant="primary" onPress={confirm} />
           <Button key="relay-no" label="Annuler" onPress={toIdle} />
         </Box>
       )
