@@ -625,6 +625,28 @@ describe('remote bars', () => {
     expect(await ui.find({ type: 'Text', text: /⇄ autre/ })).toBeUndefined()
   })
 
+  test('a slow sharing pass keeps a session that wrote while it ran, not a future-dated one', async ($, on) => {
+    const clock = mock.clock(on, { now: 7_900_000 })
+    const fail: Fail = { deferKeys: true }
+    const calls = failingEngine(on, fail, {})
+
+    // Tick 2 starts the pass at 7_902_000, held on store.keys.
+    await $.session.start(START)
+    await clock.advance(2000)
+    expect(calls.releaseKeys).toHaveLength(1)
+    await clock.advance(3000)
+
+    // A live session wrote 2.5 s after the pass began; another entry is dated a minute ahead.
+    calls.store['s:vivante'] = remoteEntry('vivante', 7_904_500)
+    calls.store['s:futur'] = remoteEntry('futur', 7_960_000)
+    calls.releaseKeys[0]?.()
+    await clock.advance(0)
+
+    const ui = await $.ui.mount({ ...BAND, surface: 'terminal' })
+    expect(await ui.find({ type: 'Text', text: /⇄ vivante · Tâche distante/ })).toBeDefined()
+    expect(await ui.find({ type: 'Text', text: /⇄ futur/ })).toBeUndefined()
+  })
+
   test('session.end drops other sessions\' bars', async ($, on) => {
     const clock = mock.clock(on, { now: 7_700_000 })
     failingEngine(on, {}, { 's:autre': remoteEntry('autre', 7_700_000) })
